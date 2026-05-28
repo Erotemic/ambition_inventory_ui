@@ -9,8 +9,10 @@ use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, SystemCursorIcon};
 use bevy_lunex::prelude::*;
 use ambition_inventory_ui::{
-    MenuColor, MenuControlKind, MenuNode, MenuPageModel, MenuRect, MenuShellEffect,
-    MenuShellEffects, MenuShellPhase, MenuTextAlign, TouchActivationPolicy,
+    AmbitionMenuControl, AmbitionMenuPage, AmbitionMenuRoot, MenuColor, MenuControlKind,
+    MenuFocusKey, MenuNode, MenuOpenCloseStyle, MenuPageModel, MenuRect, MenuScrollPane,
+    MenuShellConfig, MenuShellEffect, MenuShellEffects, MenuShellPhase, MenuTextAlign,
+    MenuVisualState, TouchActivationPolicy,
 };
 
 // OoT builds the pause page background as 3 columns x 5 rows of 80x32
@@ -78,6 +80,12 @@ fn main() {
         .insert_resource(MenuAnimation::default())
         .insert_resource(MenuShell::default())
         .insert_resource(MenuShellEffects::default())
+        .insert_resource(MenuShellConfig {
+            // The library default is intentionally SmoothScale; this demo opts
+            // into the nostalgic OoT fold so the example remains expressive.
+            open_close_style: MenuOpenCloseStyle::OotPageFold,
+            ..Default::default()
+        })
         .add_systems(Startup, setup)
         .add_systems(Update, menu_toggle_input)
         .add_systems(Update, (keyboard_navigation, mouse_navigation, pointer_hit_test, gamepad_navigation))
@@ -126,7 +134,7 @@ impl Default for InventoryDemo {
             detail_level: DetailLevel::Normal,
             touch_select_then_tap: true,
             menu_toggle_binding: MenuToggleBinding::EscapeOrStart,
-            open_style: OpenCloseStyle::OotPageFold,
+            open_style: OpenCloseStyle::from(MenuOpenCloseStyle::OotPageFold),
             status_scroll: 0,
             iron_boots_equipped: false,
             iron_boots_active: false,
@@ -738,6 +746,24 @@ enum OpenCloseStyle {
     OotPageFold,
 }
 
+impl From<MenuOpenCloseStyle> for OpenCloseStyle {
+    fn from(value: MenuOpenCloseStyle) -> Self {
+        match value {
+            MenuOpenCloseStyle::SmoothScale => Self::SmoothScale,
+            MenuOpenCloseStyle::OotPageFold => Self::OotPageFold,
+        }
+    }
+}
+
+impl From<OpenCloseStyle> for MenuOpenCloseStyle {
+    fn from(value: OpenCloseStyle) -> Self {
+        match value {
+            OpenCloseStyle::SmoothScale => Self::SmoothScale,
+            OpenCloseStyle::OotPageFold => Self::OotPageFold,
+        }
+    }
+}
+
 impl OpenCloseStyle {
     fn label(self) -> &'static str {
         match self {
@@ -913,6 +939,7 @@ fn setup(
     let ring = commands
         .spawn((
             Name::new("Inside-view Lunex menu room"),
+            AmbitionMenuRoot,
             MenuRing,
             UiRoot3d,
             Transform::default(),
@@ -988,18 +1015,26 @@ fn spawn_face(
     materials: &mut Assets<StandardMaterial>,
 ) {
     let (translation, rotation) = page_face_transform(page);
-    ring.spawn((
+    let mut face = ring.spawn((
         Name::new(format!("{} Lunex face", page.label())),
         LunexFaceRoot,
         PageFace(page),
+        AmbitionMenuPage { id: page, active: page == demo.page },
         UiRoot3d,
         UiLayoutRoot::new_3d(),
         Dimension::from((PAGE_W, PAGE_H)),
         Transform::from_translation(translation)
             .with_rotation(rotation)
             .with_scale(Vec3::new(INSIDE_PAGE_X_FLIP, 1.0, 1.0)),
-    ))
-    .with_children(|ui| {
+    ));
+    if page == Page::Status {
+        face.insert(MenuScrollPane {
+            first_visible: demo.status_scroll,
+            visible_rows: STATUS_VISIBLE_ROWS,
+            total_rows: status_row_count(),
+        });
+    }
+    face.with_children(|ui| {
         let active_face = page == demo.page;
         let model = build_page_model(page, demo, active_face);
         render_page_model(ui, materials, &model);
@@ -1099,43 +1134,106 @@ fn render_page_model(
                 spawn_text(ui, materials, *x, *y, *size, text, menu_align(*align), menu_srgba(*color));
             }
             MenuNode::Control { rect, kind, label, detail, selected, important, action } => {
-                let color = control_color(*kind, *selected, *important);
-                spawn_panel(ui, materials, rect.x, rect.y, rect.w, rect.h, color, *action);
-                if let Some(detail) = detail {
-                    spawn_text(
-                        ui,
-                        materials,
-                        rect.x + rect.w * 0.5,
-                        rect.y + rect.h * 0.30,
-                        control_label_size(*kind),
-                        label,
-                        TextAlign::Center,
-                        control_label_color(*kind, *selected, *important),
-                    );
-                    spawn_text(
-                        ui,
-                        materials,
-                        rect.x + rect.w * 0.5,
-                        rect.y + rect.h * 0.68,
-                        control_detail_size(*kind),
-                        detail,
-                        TextAlign::Center,
-                        Srgba::rgb_u8(172, 190, 204),
-                    );
-                } else {
-                    spawn_text(
-                        ui,
-                        materials,
-                        rect.x + rect.w * 0.5,
-                        rect.y + rect.h * 0.52,
-                        control_label_size(*kind),
-                        label,
-                        TextAlign::Center,
-                        control_label_color(*kind, *selected, *important),
-                    );
-                }
+                spawn_control(ui, materials, *rect, *kind, label, detail.as_deref(), *selected, *important, *action);
             }
         }
+    }
+}
+
+
+fn spawn_control(
+    ui: &mut ChildSpawnerCommands,
+    materials: &mut Assets<StandardMaterial>,
+    rect: MenuRect,
+    kind: MenuControlKind,
+    label: &str,
+    detail: Option<&str>,
+    selected: bool,
+    important: bool,
+    action: Option<ClickAction>,
+) {
+    let color = control_color(kind, selected, important);
+    let depth = panel_depth(rect.w, rect.h, action.is_some());
+    let material = materials.add(StandardMaterial {
+        base_color: color,
+        alpha_mode: AlphaMode::Opaque,
+        cull_mode: None,
+        unlit: true,
+        ..default()
+    });
+
+    let focus = MenuFocusKey {
+        row: (rect.y * 10.0).round() as i32,
+        col: (rect.x * 10.0).round() as i32,
+        order: (rect.y * 100.0 + rect.x).round() as i32,
+    };
+
+    let mut entity = ui.spawn((
+        Name::new(format!("{:?} control", kind)),
+        UiLayout::window()
+            .x(Rl(rect.x))
+            .y(Rl(rect.y))
+            .width(Rl(rect.w))
+            .height(Rh(rect.h))
+            .anchor(Anchor::TOP_LEFT)
+            .pack(),
+        UiDepth::Set(depth),
+        UiMeshPlane3d,
+        MeshMaterial3d(material),
+        AmbitionMenuControl { kind, action, focus },
+        MenuVisualState {
+            focused: selected,
+            selected,
+            disabled: action.is_none(),
+            ..Default::default()
+        },
+    ));
+
+    if action.is_some() {
+        entity.insert((
+            OnHoverSetCursor::new(SystemCursorIcon::Pointer),
+            UiHover::new().forward_speed(18.0).backward_speed(10.0),
+            UiColor::new(vec![(UiBase::id(), color), (UiHover::id(), hover_panel_color())]),
+        ));
+        entity
+            .observe(hover_set::<Pointer<Over>, true>)
+            .observe(hover_set::<Pointer<Out>, false>);
+    } else {
+        entity.insert((UiColor::from(color), Pickable::IGNORE));
+    }
+
+    if let Some(detail) = detail {
+        spawn_text(
+            ui,
+            materials,
+            rect.x + rect.w * 0.5,
+            rect.y + rect.h * 0.30,
+            control_label_size(kind),
+            label,
+            TextAlign::Center,
+            control_label_color(kind, selected, important),
+        );
+        spawn_text(
+            ui,
+            materials,
+            rect.x + rect.w * 0.5,
+            rect.y + rect.h * 0.68,
+            control_detail_size(kind),
+            detail,
+            TextAlign::Center,
+            Srgba::rgb_u8(172, 190, 204),
+        );
+    } else {
+        spawn_text(
+            ui,
+            materials,
+            rect.x + rect.w * 0.5,
+            rect.y + rect.h * 0.52,
+            control_label_size(kind),
+            label,
+            TextAlign::Center,
+            control_label_color(kind, selected, important),
+        );
     }
 }
 
@@ -1344,12 +1442,22 @@ fn add_status_nodes(model: &mut MenuPageModel<Page, ClickAction>, demo: &Invento
     }
 
     if rows.len() > STATUS_VISIBLE_ROWS {
-        let track_h = 38.0;
-        let thumb_h = (STATUS_VISIBLE_ROWS as f32 / rows.len() as f32 * track_h).max(8.0);
+        // Avoid the old overlapping track/thumb geometry. Thin transparent-ish
+        // quads on a rotating 3D page were visually close enough to z-fight.
+        // This segmented indicator never overlaps itself: one slot per scroll
+        // position, with the active slot emphasized.
         let max_scroll = rows.len() - STATUS_VISIBLE_ROWS;
-        let thumb_y = 42.0 + (demo.status_scroll as f32 / max_scroll as f32) * (track_h - thumb_h);
-        model.panel(MenuRect::new(80.3, 42.0, 1.2, track_h), mc(Color::srgba(0.10, 0.09, 0.11, 0.96)), None);
-        model.panel(MenuRect::new(80.1, thumb_y, 1.6, thumb_h), mc(Color::srgba(0.70, 0.55, 0.26, 0.98)), None);
+        let slot_h = 38.0 / (max_scroll + 1) as f32;
+        for slot in 0..=max_scroll {
+            let active = slot == demo.status_scroll.min(max_scroll);
+            let y = 42.0 + slot as f32 * slot_h + 0.35;
+            let h = (slot_h - 0.7).max(1.3);
+            model.panel(
+                MenuRect::new(if active { 79.95 } else { 80.35 }, y, if active { 1.9 } else { 1.1 }, h),
+                mc(if active { Color::srgba(0.70, 0.55, 0.26, 0.98) } else { Color::srgba(0.14, 0.12, 0.15, 0.96) }),
+                None,
+            );
+        }
         model.text(50.0, 82.4, 2.0, "Scroll pane: wheel, touch, or D-pad follows selection.", MenuTextAlign::Center, MenuColor::rgba(188.0 / 255.0, 190.0 / 255.0, 205.0 / 255.0, 1.0));
     }
 }
@@ -1486,14 +1594,23 @@ fn spawn_status_page(ui: &mut ChildSpawnerCommands, materials: &mut Assets<Stand
     }
 
     if rows.len() > STATUS_VISIBLE_ROWS {
-        let track_h = 38.0;
-        let thumb_h = (STATUS_VISIBLE_ROWS as f32 / rows.len() as f32 * track_h).max(8.0);
         let max_scroll = rows.len() - STATUS_VISIBLE_ROWS;
-        let thumb_y = 42.0 + (demo.status_scroll as f32 / max_scroll as f32) * (track_h - thumb_h);
-        // Scrollbar track and thumb intentionally use separate depth bands; otherwise
-        // the two thin overlapping planes can z-fight as the 3D page rotates.
-        spawn_panel_at_depth(ui, materials, 80.3, 42.0, 1.2, track_h, Color::srgba(0.10, 0.09, 0.11, 0.96), DEPTH_LARGE_PANEL);
-        spawn_panel_at_depth(ui, materials, 80.1, thumb_y, 1.6, thumb_h, Color::srgba(0.70, 0.55, 0.26, 0.98), DEPTH_ACTION);
+        let slot_h = 38.0 / (max_scroll + 1) as f32;
+        for slot in 0..=max_scroll {
+            let active = slot == demo.status_scroll.min(max_scroll);
+            let y = 42.0 + slot as f32 * slot_h + 0.35;
+            let h = (slot_h - 0.7).max(1.3);
+            spawn_panel_at_depth(
+                ui,
+                materials,
+                if active { 79.95 } else { 80.35 },
+                y,
+                if active { 1.9 } else { 1.1 },
+                h,
+                if active { Color::srgba(0.70, 0.55, 0.26, 0.98) } else { Color::srgba(0.14, 0.12, 0.15, 0.96) },
+                DEPTH_ACTION,
+            );
+        }
         spawn_text(ui, materials, 50.0, 82.4, 2.0, "Status is a scroll pane: wheel or D-pad scrolls the selected row.", TextAlign::Center, Srgba::rgb_u8(188, 190, 205));
     }
 }
@@ -2051,6 +2168,7 @@ fn gamepad_navigation(gamepads: Query<&Gamepad>, shell: Res<MenuShell>, mut demo
 fn animate_menu_ring(
     time: Res<Time>,
     demo: Res<InventoryDemo>,
+    config: Res<MenuShellConfig>,
     mut menu: ResMut<MenuAnimation>,
     mut shell: ResMut<MenuShell>,
     mut effects: ResMut<MenuShellEffects>,
@@ -2065,7 +2183,7 @@ fn animate_menu_ring(
     let phase_before = shell.phase();
 
     let delta = shortest_angle_delta(menu.current_angle, menu.target_angle);
-    let rotate_step = 1.0 - (-ROTATE_SPEED * time.delta_secs()).exp();
+    let rotate_step = 1.0 - (-config.page_rotate_speed * time.delta_secs()).exp();
     menu.current_angle += delta * rotate_step;
 
     if delta.abs() < 0.001 {
@@ -2073,7 +2191,7 @@ fn animate_menu_ring(
     }
 
     let target = if shell.target_open { 1.0 } else { 0.0 };
-    let open_step = 1.0 - (-OPEN_CLOSE_SPEED * time.delta_secs()).exp();
+    let open_step = 1.0 - (-config.open_close_speed * time.delta_secs()).exp();
     shell.openness += (target - shell.openness) * open_step;
     if (shell.openness - target).abs() < 0.002 {
         shell.openness = target;

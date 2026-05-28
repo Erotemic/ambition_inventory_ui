@@ -217,3 +217,33 @@ gameplay movement. This prototype aligns with those constraints:
 The next extraction pass should move the Lunex renderer into a plugin with a
 host-provided page-builder callback or resource, plus systems that emit host
 `Action` values when controls are activated.
+
+## Package polish / ECS boundary revision
+
+This revision keeps the data-driven page model, but moves the state that benefits
+from ECS identity onto rendered entities:
+
+- `AmbitionMenuRoot` marks the shell/root entity.
+- `AmbitionMenuPage<PageId>` marks each page face and records whether it is the active page.
+- `AmbitionMenuControl<Action>` stores the semantic control kind, action, and focus key on rendered controls.
+- `MenuVisualState` stores frequently changing hover/focus/selected/pressed/disabled state.
+- `MenuScrollPane` marks the Status page viewport with visible/total row metadata.
+
+The deliberate boundary is: **menu content remains data-driven**, while
+**rendered controls and visual interaction state are ECS components**. I do not
+think every declarative menu row should become hand-authored ECS state; that
+would make inventory screens harder to construct from Ambition's equipment,
+item, map, and settings data. The builder/model layer should remain the normal
+API, with ECS components available for renderer/input systems and advanced host
+integration.
+
+`MenuShellConfig` now exposes shell defaults. The reusable crate default is
+`SmoothScale`; the OoT-style fold is intentionally opt-in through
+`MenuOpenCloseStyle::OotPageFold`. The demo opts into the OoT fold because this
+prototype is specifically validating that nostalgic shell, but games using the
+crate should choose it deliberately.
+
+The Status scrollbar was changed from overlapping track/thumb planes to a
+segmented scroll indicator. The old two-plane version could still shimmer while
+angled in 3D. The segmented indicator avoids self-overlap and should be more
+stable while retaining clear scroll position feedback.

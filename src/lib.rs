@@ -6,7 +6,7 @@
 //! settings resources and then translate `MenuAction` requests back into game
 //! events.
 
-use bevy::prelude::Resource;
+use bevy::prelude::{Component, Plugin, Resource};
 
 /// A normalized page-space rectangle.
 ///
@@ -206,4 +206,111 @@ pub enum MenuShellPhase {
 pub enum TouchActivationPolicy {
     ActivateOnFirstTap,
     SelectThenTap,
+}
+
+
+/// Optional plugin marker for host games that want a single import point.
+///
+/// The prototype renderer still lives in `main.rs`, but these public types are
+/// intentionally crate-shaped. A future extraction can move the Lunex renderer,
+/// input systems, and shell animation systems behind this plugin without
+/// changing the data model below.
+pub struct AmbitionInventoryUiPlugin;
+
+impl Plugin for AmbitionInventoryUiPlugin {
+    fn build(&self, _app: &mut bevy::prelude::App) {
+        // Intentionally empty in this prototype overlay. The reusable API is
+        // already available through ECS components/resources and the data model;
+        // renderer systems will move here once the demo hardening settles.
+    }
+}
+
+/// High-level shell animation style.
+///
+/// Keep the nostalgic OoT-inspired page fold opt-in at the reusable API level.
+/// Most games should start with `SmoothScale` and deliberately choose
+/// `OotPageFold` when they want the strong N64 pause-menu identity.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum MenuOpenCloseStyle {
+    #[default]
+    SmoothScale,
+    OotPageFold,
+}
+
+/// Configuration resource for a reusable menu shell.
+///
+/// This intentionally avoids audio/music decisions. Instead, use
+/// `MenuShellEffects` and let the host game map lifecycle events to SFX,
+/// pause-state changes, or music ducking/muffling.
+#[derive(Resource, Clone, Debug)]
+pub struct MenuShellConfig {
+    pub open_close_style: MenuOpenCloseStyle,
+    pub touch_policy: TouchActivationPolicy,
+    pub page_rotate_speed: f32,
+    pub open_close_speed: f32,
+}
+
+impl Default for MenuShellConfig {
+    fn default() -> Self {
+        Self {
+            open_close_style: MenuOpenCloseStyle::SmoothScale,
+            touch_policy: TouchActivationPolicy::SelectThenTap,
+            page_rotate_speed: 5.2,
+            open_close_speed: 8.0,
+        }
+    }
+}
+
+/// Marker for the root entity that owns a menu shell / menu room.
+#[derive(Component, Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct AmbitionMenuRoot;
+
+/// ECS component attached to a rendered menu page/face.
+#[derive(Component, Clone, Debug, Eq, PartialEq)]
+pub struct AmbitionMenuPage<PageId> {
+    pub id: PageId,
+    pub active: bool,
+}
+
+/// Stable navigation identity for focusable controls.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
+pub struct MenuFocusKey {
+    pub row: i32,
+    pub col: i32,
+    pub order: i32,
+}
+
+/// ECS component attached to rendered controls.
+///
+/// The data-driven builder is still the ergonomic API, but controls that make
+/// it into the world should carry their semantic action/kind as components so
+/// hover, focus, accessibility, and alternative input can be implemented by ECS
+/// systems instead of by renderer-private bookkeeping.
+#[derive(Component, Clone, Debug, PartialEq)]
+pub struct AmbitionMenuControl<Action> {
+    pub kind: MenuControlKind,
+    pub action: Option<Action>,
+    pub focus: MenuFocusKey,
+}
+
+/// Runtime visual state for a control.
+///
+/// This is the part that belongs in ECS. It changes frequently from hover,
+/// focus, touch, and gamepad navigation, while the declarative page data can
+/// remain stable and data-driven.
+#[derive(Component, Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MenuVisualState {
+    pub hovered: bool,
+    pub focused: bool,
+    pub selected: bool,
+    pub pressed: bool,
+    pub disabled: bool,
+}
+
+/// ECS metadata for a scrollable viewport.
+#[derive(Component, Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MenuScrollPane {
+    pub first_visible: usize,
+    pub visible_rows: usize,
+    pub total_rows: usize,
 }
