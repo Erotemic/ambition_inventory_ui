@@ -208,6 +208,27 @@ pub enum TouchActivationPolicy {
     SelectThenTap,
 }
 
+/// Pointer/touch gesture affordances supported by the menu shell.
+///
+/// These are policy flags rather than hard-coded behavior so host games can
+/// keep desktop, controller, and mobile interaction conventions aligned.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MenuGesturePolicy {
+    pub swipe_pages: bool,
+    pub drag_off_cancels: bool,
+    pub drag_scroll_panes: bool,
+}
+
+impl Default for MenuGesturePolicy {
+    fn default() -> Self {
+        Self {
+            swipe_pages: true,
+            drag_off_cancels: true,
+            drag_scroll_panes: true,
+        }
+    }
+}
+
 
 /// Optional plugin marker for host games that want a single import point.
 ///
@@ -246,6 +267,7 @@ pub enum MenuOpenCloseStyle {
 pub struct MenuShellConfig {
     pub open_close_style: MenuOpenCloseStyle,
     pub touch_policy: TouchActivationPolicy,
+    pub gestures: MenuGesturePolicy,
     pub page_rotate_speed: f32,
     pub open_close_speed: f32,
 }
@@ -255,6 +277,7 @@ impl Default for MenuShellConfig {
         Self {
             open_close_style: MenuOpenCloseStyle::SmoothScale,
             touch_policy: TouchActivationPolicy::SelectThenTap,
+            gestures: MenuGesturePolicy::default(),
             page_rotate_speed: 5.2,
             open_close_speed: 8.0,
         }

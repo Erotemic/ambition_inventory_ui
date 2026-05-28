@@ -111,7 +111,10 @@ struct InventoryDemo {
     menu_toggle_binding: MenuToggleBinding,
     open_style: OpenCloseStyle,
     status_scroll: usize,
-    iron_boots_equipped: bool,
+    equipped_weapon: usize,
+    equipped_feet: Option<usize>,
+    equipped_charm: Option<usize>,
+    pack_counts: [u8; 6],
     iron_boots_active: bool,
     status: String,
     revision: u64,
@@ -136,7 +139,10 @@ impl Default for InventoryDemo {
             menu_toggle_binding: MenuToggleBinding::EscapeOrStart,
             open_style: OpenCloseStyle::from(MenuOpenCloseStyle::OotPageFold),
             status_scroll: 0,
-            iron_boots_equipped: false,
+            equipped_weapon: 0,
+            equipped_feet: None,
+            equipped_charm: None,
+            pack_counts: [3, 5, 1, 8, 2, 1],
             iron_boots_active: false,
             status: "Select Feet, then equip Iron Boots.".to_string(),
             revision: 0,
@@ -163,29 +169,45 @@ impl InventoryDemo {
 
     fn slot_value(&self, idx: usize) -> String {
         match idx {
-            0 => "Travel Sword".to_string(),
-            1 if self.iron_boots_equipped => {
-                if self.iron_boots_active {
-                    "Iron Boots  [active]".to_string()
-                } else {
-                    "Iron Boots".to_string()
-                }
-            }
-            1 => "Empty".to_string(),
-            2 => "Empty".to_string(),
+            0 => gear_items_for_slot(0)[self.equipped_weapon].0.to_string(),
+            1 => match self.equipped_feet {
+                Some(i) if i == 0 && self.iron_boots_active => "Iron Boots  [active]".to_string(),
+                Some(i) => gear_items_for_slot(1)[i].0.to_string(),
+                None => "Empty".to_string(),
+            },
+            2 => match self.equipped_charm {
+                Some(i) => gear_items_for_slot(2)[i].0.to_string(),
+                None => "Empty".to_string(),
+            },
             _ => "".to_string(),
         }
     }
 
     fn items(&self) -> [&'static str; 3] {
-        ["Iron Boots", "Feather Boots", "Climbing Spikes"]
+        let items = gear_items_for_slot(self.selected_slot);
+        [items[0].0, items[1].0, items[2].0]
+    }
+
+    fn item_detail(&self, idx: usize) -> &'static str {
+        gear_items_for_slot(self.selected_slot)[idx].1
     }
 
     fn actions(&self) -> [&'static str; 3] {
-        if self.iron_boots_equipped {
-            ["Unequip", "Toggle active", "Inspect"]
-        } else {
-            ["Equip to Feet", "Assign", "Inspect"]
+        match self.selected_slot {
+            1 if self.equipped_feet == Some(0) && self.selected_item == 0 => ["Unequip", "Toggle active", "Inspect"],
+            1 if self.equipped_feet == Some(self.selected_item) => ["Unequip", "Compare", "Inspect"],
+            2 if self.equipped_charm == Some(self.selected_item) => ["Unequip", "Compare", "Inspect"],
+            0 if self.equipped_weapon == self.selected_item => ["Equipped", "Compare", "Inspect"],
+            _ => ["Equip", "Compare", "Inspect"],
+        }
+    }
+
+    fn is_selected_item_equipped(&self) -> bool {
+        match self.selected_slot {
+            0 => self.equipped_weapon == self.selected_item,
+            1 => self.equipped_feet == Some(self.selected_item),
+            2 => self.equipped_charm == Some(self.selected_item),
+            _ => false,
         }
     }
 
@@ -388,7 +410,7 @@ impl InventoryDemo {
                 FocusArea::Actions => self.activate_action(self.selected_action),
             },
             Page::Pack => {
-                self.status = pack_status(self.selected_pack).to_string();
+                self.consume_pack_item(self.selected_pack);
             }
             Page::Map => {
                 self.status = map_status(self.selected_map).to_string();
@@ -484,27 +506,62 @@ impl InventoryDemo {
 
     fn activate_action(&mut self, action_idx: usize) {
         match action_idx {
-            0 => {
-                if self.iron_boots_equipped {
-                    self.iron_boots_equipped = false;
-                    self.iron_boots_active = false;
-                    self.status = "Iron Boots removed from Feet.".to_string();
+            0 => self.equip_or_unequip_selected_item(),
+            1 => {
+                if self.selected_slot == 1 && self.selected_item == 0 {
+                    self.try_toggle_iron_boots();
                 } else {
-                    self.selected_slot = 1;
-                    self.selected_item = 0;
-                    self.iron_boots_equipped = true;
-                    self.status = "Iron Boots equipped to Feet.".to_string();
+                    let item = self.items()[self.selected_item];
+                    let equipped = self.slot_value(self.selected_slot);
+                    self.status = format!("Compare {item} with {equipped}.");
+                    self.bump();
                 }
             }
-            1 => self.try_toggle_iron_boots(),
             _ => {
-                self.status = "Iron Boots: heavy footing, current resistance, reduced speed.".to_string();
+                let item = self.items()[self.selected_item];
+                let detail = self.item_detail(self.selected_item);
+                self.status = format!("{item}: {detail}.");
+                self.bump();
             }
         }
     }
 
+    fn equip_or_unequip_selected_item(&mut self) {
+        let item = self.items()[self.selected_item];
+        match self.selected_slot {
+            0 => {
+                self.equipped_weapon = self.selected_item;
+                self.status = format!("{item} equipped as Weapon.");
+            }
+            1 => {
+                if self.equipped_feet == Some(self.selected_item) {
+                    self.equipped_feet = None;
+                    self.iron_boots_active = false;
+                    self.status = format!("{item} removed from Feet.");
+                } else {
+                    self.equipped_feet = Some(self.selected_item);
+                    if self.selected_item != 0 {
+                        self.iron_boots_active = false;
+                    }
+                    self.status = format!("{item} equipped to Feet.");
+                }
+            }
+            2 => {
+                if self.equipped_charm == Some(self.selected_item) {
+                    self.equipped_charm = None;
+                    self.status = format!("{item} charm removed.");
+                } else {
+                    self.equipped_charm = Some(self.selected_item);
+                    self.status = format!("{item} charm equipped.");
+                }
+            }
+            _ => {}
+        }
+        self.bump();
+    }
+
     fn try_toggle_iron_boots(&mut self) {
-        if self.iron_boots_equipped {
+        if self.equipped_feet == Some(0) {
             self.iron_boots_active = !self.iron_boots_active;
             self.status = if self.iron_boots_active {
                 "Iron Boots active: anchored and heavy.".to_string()
@@ -512,7 +569,25 @@ impl InventoryDemo {
                 "Iron Boots inactive: normal movement restored.".to_string()
             };
         } else {
-            self.status = "Equip Iron Boots before toggling them.".to_string();
+            self.status = "Equip Iron Boots in the Feet slot before toggling them.".to_string();
+        }
+        self.bump();
+    }
+
+    fn consume_pack_item(&mut self, idx: usize) {
+        self.selected_pack = idx;
+        match idx {
+            0 | 1 | 3 => {
+                if self.pack_counts[idx] > 0 {
+                    self.pack_counts[idx] -= 1;
+                    self.status = pack_use_message(idx, self.pack_counts[idx]);
+                } else {
+                    self.status = format!("{} is empty.", pack_items()[idx].0);
+                }
+            }
+            _ => {
+                self.status = pack_status(idx, self);
+            }
         }
         self.bump();
     }
@@ -544,10 +619,12 @@ impl InventoryDemo {
             }
             ClickAction::PackItem(idx) => {
                 self.page = Page::Pack;
+                self.focus_area = FocusArea::Items;
                 self.selected_pack = idx;
             }
             ClickAction::MapMarker(idx) => {
                 self.page = Page::Map;
+                self.focus_area = FocusArea::Items;
                 self.selected_map = idx;
             }
             ClickAction::StatusRow(idx) => {
@@ -583,16 +660,23 @@ impl InventoryDemo {
             }
             ClickAction::SelectSlot(idx) => {
                 self.page = Page::Gear;
-                self.focus_area = FocusArea::Slots;
                 self.selected_slot = idx;
-                self.status = format!("{} slot selected.", self.slots()[idx]);
+                self.selected_item = match idx {
+                    0 => self.equipped_weapon,
+                    1 => self.equipped_feet.unwrap_or(0),
+                    2 => self.equipped_charm.unwrap_or(0),
+                    _ => 0,
+                };
+                self.focus_area = FocusArea::Items;
+                self.status = format!("{} slot selected; choose compatible gear.", self.slots()[idx]);
                 self.bump();
             }
             ClickAction::SelectItem(idx) => {
                 self.page = Page::Gear;
-                self.focus_area = FocusArea::Items;
+                self.focus_area = FocusArea::Actions;
                 self.selected_item = idx;
-                self.status = format!("{} selected.", self.items()[idx]);
+                self.selected_action = 0;
+                self.status = format!("{} selected; choose Equip or Inspect.", self.items()[idx]);
                 self.bump();
             }
             ClickAction::Action(idx) => {
@@ -604,9 +688,8 @@ impl InventoryDemo {
             }
             ClickAction::PackItem(idx) => {
                 self.page = Page::Pack;
-                self.selected_pack = idx;
-                self.status = pack_status(idx).to_string();
-                self.bump();
+                self.focus_area = FocusArea::Items;
+                self.consume_pack_item(idx);
             }
             ClickAction::MapMarker(idx) => {
                 self.page = Page::Map;
@@ -1320,7 +1403,7 @@ fn add_page_tabs(model: &mut MenuPageModel<Page, ClickAction>, demo: &InventoryD
 
 fn add_gear_nodes(model: &mut MenuPageModel<Page, ClickAction>, demo: &InventoryDemo, active_face: bool) {
     model.text(18.0, 31.5, 3.4, "Slots", MenuTextAlign::Center, MenuColor::rgba(235.0 / 255.0, 225.0 / 255.0, 200.0 / 255.0, 1.0));
-    model.text(50.0, 31.5, 3.4, "Boots", MenuTextAlign::Center, MenuColor::rgba(235.0 / 255.0, 225.0 / 255.0, 200.0 / 255.0, 1.0));
+    model.text(50.0, 31.5, 3.4, "Compatible", MenuTextAlign::Center, MenuColor::rgba(235.0 / 255.0, 225.0 / 255.0, 200.0 / 255.0, 1.0));
     model.text(82.0, 31.5, 3.4, "Actions", MenuTextAlign::Center, MenuColor::rgba(235.0 / 255.0, 225.0 / 255.0, 200.0 / 255.0, 1.0));
 
     for (i, slot) in demo.slots().iter().enumerate() {
@@ -1339,18 +1422,13 @@ fn add_gear_nodes(model: &mut MenuPageModel<Page, ClickAction>, demo: &Inventory
 
     for (i, item) in demo.items().iter().enumerate() {
         let y = 37.0 + i as f32 * 12.0;
-        let detail = match i {
-            0 => "Heavy footing / current resist",
-            1 => "Light steps / jump control",
-            _ => "Wall contact / ledge grip",
-        };
         model.control(
             MenuRect::new(36.5, y, 27.0, 9.2),
             MenuControlKind::Item,
             *item,
-            Some(detail.to_string()),
+            Some(demo.item_detail(i).to_string()),
             demo.focus_area == FocusArea::Items && demo.selected_item == i,
-            i == 0,
+            demo.is_selected_item_equipped() && demo.selected_item == i,
             active_face.then_some(ClickAction::SelectItem(i)),
         );
     }
@@ -1368,17 +1446,18 @@ fn add_gear_nodes(model: &mut MenuPageModel<Page, ClickAction>, demo: &Inventory
         );
     }
 
-    let boot_state = if demo.iron_boots_equipped {
-        if demo.iron_boots_active { "Feet: Iron Boots are ACTIVE" } else { "Feet: Iron Boots equipped, inactive" }
-    } else {
-        "Feet: empty; Iron Boots available"
-    };
+    let boot_state = format!(
+        "Weapon: {}   Feet: {}   Charm: {}",
+        demo.slot_value(0),
+        demo.slot_value(1),
+        demo.slot_value(2),
+    );
     model.panel(
         MenuRect::new(14.0, 74.0, 72.0, 9.0),
         mc(Color::srgba(0.08, 0.09, 0.12, 0.84)),
         active_face.then_some(ClickAction::FocusArea(FocusArea::Actions)),
     );
-    model.text(50.0, 78.6, 3.2, boot_state, MenuTextAlign::Center, MenuColor::rgba(221.0 / 255.0, 230.0 / 255.0, 236.0 / 255.0, 1.0));
+    model.text(50.0, 78.6, 3.0, boot_state.as_str(), MenuTextAlign::Center, MenuColor::rgba(221.0 / 255.0, 230.0 / 255.0, 236.0 / 255.0, 1.0));
 }
 
 fn add_pack_nodes(model: &mut MenuPageModel<Page, ClickAction>, demo: &InventoryDemo, active_face: bool) {
@@ -1390,7 +1469,7 @@ fn add_pack_nodes(model: &mut MenuPageModel<Page, ClickAction>, demo: &Inventory
             MenuRect::new(x, y, 31.0, 9.5),
             MenuControlKind::Item,
             item.0,
-            Some(item.1.to_string()),
+            Some(pack_detail(i, demo)),
             demo.focus_area == FocusArea::Items && demo.selected_pack == i,
             item.2,
             active_face.then_some(ClickAction::PackItem(i)),
@@ -1530,20 +1609,21 @@ fn spawn_gear_page(ui: &mut ChildSpawnerCommands, materials: &mut Assets<Standar
         spawn_text(ui, materials, 82.0, y + 4.8, 2.8, action_label, TextAlign::Center, Srgba::rgb_u8(238, 229, 202));
     }
 
-    let boot_state = if demo.iron_boots_equipped {
-        if demo.iron_boots_active { "Feet: Iron Boots are ACTIVE" } else { "Feet: Iron Boots equipped, inactive" }
-    } else {
-        "Feet: empty; Iron Boots available"
-    };
+    let boot_state = format!(
+        "Weapon: {}   Feet: {}   Charm: {}",
+        demo.slot_value(0),
+        demo.slot_value(1),
+        demo.slot_value(2),
+    );
     let action = active_face.then_some(ClickAction::FocusArea(FocusArea::Actions));
     spawn_panel(ui, materials, 14.0, 74.0, 72.0, 9.0, Color::srgba(0.08, 0.09, 0.12, 0.84), action);
-    spawn_text(ui, materials, 50.0, 78.6, 3.2, boot_state, TextAlign::Center, Srgba::rgb_u8(221, 230, 236));
+    spawn_text(ui, materials, 50.0, 78.6, 3.2, boot_state.as_str(), TextAlign::Center, Srgba::rgb_u8(221, 230, 236));
 }
 
 fn spawn_pack_page(ui: &mut ChildSpawnerCommands, materials: &mut Assets<StandardMaterial>, demo: &InventoryDemo, active_face: bool) {
     let items = pack_items();
     spawn_text(ui, materials, 50.0, 34.0, 3.4, "Pack keeps consumables away from gear decisions.", TextAlign::Center, Srgba::rgb_u8(224, 226, 215));
-    for (i, (name, detail, _important)) in items.iter().enumerate() {
+    for (i, (name, _detail, _important)) in items.iter().enumerate() {
         let x = if i % 2 == 0 { 17.0 } else { 53.0 };
         let y = 43.0 + (i / 2) as f32 * 14.0;
         let selected = demo.focus_area == FocusArea::Items && demo.selected_pack == i;
@@ -1551,7 +1631,8 @@ fn spawn_pack_page(ui: &mut ChildSpawnerCommands, materials: &mut Assets<Standar
         let action = active_face.then_some(ClickAction::PackItem(i));
         spawn_panel(ui, materials, x, y, 30.0, 10.0, color, action);
         spawn_text(ui, materials, x + 15.0, y + 3.4, 2.8, name, TextAlign::Center, Srgba::rgb_u8(236, 236, 220));
-        spawn_text(ui, materials, x + 15.0, y + 7.0, 2.1, detail, TextAlign::Center, Srgba::rgb_u8(172, 190, 204));
+        let detail = pack_detail(i, demo);
+        spawn_text(ui, materials, x + 15.0, y + 7.0, 2.1, detail.as_str(), TextAlign::Center, Srgba::rgb_u8(172, 190, 204));
     }
 }
 
@@ -1629,25 +1710,63 @@ struct HitTarget {
     action: ClickAction,
 }
 
+fn gear_items_for_slot(slot: usize) -> [(&'static str, &'static str); 3] {
+    match slot {
+        0 => [
+            ("Travel Sword", "Reliable blade / balanced reach"),
+            ("Hook Spear", "Long reach / pulls light foes"),
+            ("Ember Staff", "Fire channel / slow recovery"),
+        ],
+        1 => [
+            ("Iron Boots", "Heavy footing / current resist"),
+            ("Feather Boots", "Light steps / jump control"),
+            ("Climbing Spikes", "Wall contact / ledge grip"),
+        ],
+        _ => [
+            ("Compass Charm", "Nearby secrets shimmer on map"),
+            ("River Charm", "Smoother swimming / water sense"),
+            ("Guard Charm", "Small armor bonus while grounded"),
+        ],
+    }
+}
+
 fn pack_items() -> [(&'static str, &'static str, bool); 6] {
     [
-        ("Healing Tincture", "Consumable x3", true),
-        ("Glow Seed", "Cavern light x5", false),
+        ("Healing Tincture", "Restores health", true),
+        ("Glow Seed", "Drops a cavern light", false),
         ("Old Key", "Quest item / locked", true),
-        ("Travel Ration", "Stamina snack x8", false),
-        ("River Pearl", "Trade good x2", false),
+        ("Travel Ration", "Restores stamina", false),
+        ("River Pearl", "Trade good", false),
         ("Sketch Map", "Field note", false),
     ]
 }
 
-fn pack_status(idx: usize) -> &'static str {
+fn pack_detail(idx: usize, demo: &InventoryDemo) -> String {
+    let (_, base, _) = pack_items()[idx];
     match idx {
-        0 => "Healing Tincture selected: restores health.",
-        1 => "Glow Seed selected: marks dark paths.",
-        2 => "Old Key selected: quest item, safe from selling.",
-        3 => "Travel Ration selected: restores stamina over time.",
-        4 => "River Pearl selected: trade good, can be sold safely.",
-        _ => "Sketch Map selected: field note linked to the Map page.",
+        0 | 1 | 3 => format!("{base} x{}", demo.pack_counts[idx]),
+        4 => format!("{base} x{}", demo.pack_counts[idx]),
+        _ => base.to_string(),
+    }
+}
+
+fn pack_status(idx: usize, demo: &InventoryDemo) -> String {
+    match idx {
+        0 => format!("Healing Tincture: {} remaining.", demo.pack_counts[idx]),
+        1 => format!("Glow Seed: {} remaining.", demo.pack_counts[idx]),
+        2 => "Old Key: quest item, safe from selling.".to_string(),
+        3 => format!("Travel Ration: {} remaining.", demo.pack_counts[idx]),
+        4 => format!("River Pearl: trade good x{}.", demo.pack_counts[idx]),
+        _ => "Sketch Map: field note linked to the Map page.".to_string(),
+    }
+}
+
+fn pack_use_message(idx: usize, remaining: u8) -> String {
+    match idx {
+        0 => format!("Used Healing Tincture. {remaining} left."),
+        1 => format!("Planted a Glow Seed. {remaining} left."),
+        3 => format!("Ate a Travel Ration. {remaining} left."),
+        _ => "Item inspected.".to_string(),
     }
 }
 
@@ -1670,7 +1789,7 @@ fn map_status(idx: usize) -> &'static str {
 fn status_rows(demo: &InventoryDemo) -> Vec<(&'static str, String, MenuControlKind)> {
     vec![
         ("Mobility", if demo.iron_boots_active { "Anchored" } else { "Normal" }.to_string(), MenuControlKind::Decoration),
-        ("Feet slot", if demo.iron_boots_equipped { "Iron Boots" } else { "Empty" }.to_string(), MenuControlKind::Decoration),
+        ("Feet slot", if demo.equipped_feet == Some(0) { "Iron Boots" } else { "Empty" }.to_string(), MenuControlKind::Decoration),
         ("[ ] Input hints", checked_label(demo.input_hints_enabled), MenuControlKind::OptionToggle),
         ("Layout density", if demo.compact_layout { "Compact" } else { "Cozy" }.to_string(), MenuControlKind::OptionChoice),
         ("Detail level", demo.detail_level.label().to_string(), MenuControlKind::OptionChoice),
@@ -1680,6 +1799,9 @@ fn status_rows(demo: &InventoryDemo) -> Vec<(&'static str, String, MenuControlKi
         ("SFX hook", "Queued shell effects".to_string(), MenuControlKind::Decoration),
         ("Music hook", "Host can duck/muffle on Opened".to_string(), MenuControlKind::Decoration),
         ("Page switch", "Q/E, wheel, bumpers".to_string(), MenuControlKind::Decoration),
+        ("Pointer swipe", "Drag left/right to change pages".to_string(), MenuControlKind::Decoration),
+        ("Drag cancel", "Press, drag off, release cancels".to_string(), MenuControlKind::Decoration),
+        ("Touch scroll", "Drag Status list vertically".to_string(), MenuControlKind::Decoration),
         ("Component", "Lunex data-driven shell".to_string(), MenuControlKind::Decoration),
     ]
 }
@@ -1689,7 +1811,7 @@ fn checked_label(enabled: bool) -> String {
 }
 
 fn status_row_count() -> usize {
-    12
+    15
 }
 
 fn status_row_message(idx: usize, demo: &InventoryDemo) -> String {
@@ -2014,6 +2136,7 @@ fn mouse_navigation(
     mut wheel: MessageReader<MouseWheel>,
     buttons: Res<ButtonInput<MouseButton>>,
     shell: Res<MenuShell>,
+    config: Res<MenuShellConfig>,
     mut demo: ResMut<InventoryDemo>,
     mut menu: ResMut<MenuAnimation>,
 ) {
@@ -2044,6 +2167,122 @@ fn mouse_navigation(
 }
 
 
+
+#[derive(Clone, Debug, Default)]
+struct PointerDrag {
+    active: bool,
+    start_pos: Vec2,
+    last_pos: Vec2,
+    start_action: Option<ClickAction>,
+    canceled: bool,
+    scrolled: bool,
+}
+
+impl PointerDrag {
+    fn begin(&mut self, pos: Vec2, action: Option<ClickAction>) {
+        self.active = true;
+        self.start_pos = pos;
+        self.last_pos = pos;
+        self.start_action = action;
+        self.canceled = false;
+        self.scrolled = false;
+    }
+
+    fn clear(&mut self) {
+        *self = Self::default();
+    }
+}
+
+fn update_pointer_drag(
+    drag: &mut PointerDrag,
+    pos: Vec2,
+    hovered: Option<ClickAction>,
+    demo: &mut InventoryDemo,
+    drag_scroll_panes: bool,
+    drag_off_cancels: bool,
+) {
+    if !drag.active {
+        return;
+    }
+    let from_start = pos - drag.start_pos;
+    let from_last = pos - drag.last_pos;
+
+    // Modern touch-style scrolling: dragging up on the scrollable status list
+    // moves deeper into the list; dragging down moves back toward the top.
+    // This intentionally works with a mouse drag as a touch-gesture exerciser.
+    if drag_scroll_panes && demo.page == Page::Status && from_last.y.abs() > 18.0 && from_last.y.abs() > from_last.x.abs() * 1.15 {
+        if from_last.y < 0.0 {
+            demo.scroll_status(1);
+        } else {
+            demo.scroll_status(-1);
+        }
+        drag.last_pos = pos;
+        drag.scrolled = true;
+        drag.canceled = true;
+        return;
+    }
+
+    // Press, hold, then drag off the original control cancels the activation.
+    if drag_off_cancels && from_start.length() > 10.0 && hovered != drag.start_action {
+        drag.canceled = true;
+    }
+    drag.last_pos = pos;
+}
+
+fn finish_pointer_drag(
+    drag: &mut PointerDrag,
+    pos: Vec2,
+    hovered: Option<ClickAction>,
+    demo: &mut InventoryDemo,
+    touch_select_then_tap: bool,
+    swipe_pages: bool,
+    mut last_touch_selection: Option<&mut Option<ClickAction>>,
+) {
+    if !drag.active {
+        return;
+    }
+    drag.last_pos = pos;
+    let delta = drag.last_pos - drag.start_pos;
+
+    if swipe_pages && delta.x.abs() > 74.0 && delta.x.abs() > delta.y.abs() * 1.25 {
+        if let Some(last_touch) = last_touch_selection.as_deref_mut() {
+            *last_touch = None;
+        }
+        if delta.x < 0.0 {
+            demo.next_page();
+        } else {
+            demo.previous_page();
+        }
+        drag.clear();
+        return;
+    }
+
+    if !drag.canceled && !drag.scrolled && drag.start_action == hovered {
+        if let Some(action) = hovered {
+            if let Some(last_touch) = last_touch_selection.as_deref_mut() {
+                if touch_select_then_tap {
+                    if *last_touch == Some(action) {
+                        demo.click(action);
+                        *last_touch = None;
+                    } else {
+                        demo.hover(action);
+                        *last_touch = Some(action);
+                    }
+                } else {
+                    demo.click(action);
+                    *last_touch = None;
+                }
+            } else {
+                demo.click(action);
+            }
+        }
+    } else if drag.canceled && !drag.scrolled {
+        demo.status = "Canceled drag.".to_string();
+        demo.bump();
+    }
+    drag.clear();
+}
+
 fn pointer_hit_test(
     windows: Query<&Window, With<PrimaryWindow>>,
     buttons: Res<ButtonInput<MouseButton>>,
@@ -2051,10 +2290,13 @@ fn pointer_hit_test(
     camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     face_query: Query<(&PageFace, &GlobalTransform)>,
     shell: Res<MenuShell>,
+    config: Res<MenuShellConfig>,
     mut demo: ResMut<InventoryDemo>,
     mut menu: ResMut<MenuAnimation>,
     mut last_touch_selection: Local<Option<ClickAction>>,
     mut last_mouse_hover: Local<Option<ClickAction>>,
+    mut mouse_drag: Local<PointerDrag>,
+    mut touch_drag: Local<PointerDrag>,
 ) {
     if !shell.is_interactive() {
         return;
@@ -2071,39 +2313,74 @@ fn pointer_hit_test(
 
     let before_page = demo.page;
 
-    // Mouse hover/click is immediate. Hover only mutates focus when the
-    // logical target changes, restoring highlight feedback without rebuilding
-    // the active Lunex face on every tiny mouse-move event.
     if let Some(pos) = window.cursor_position() {
         let hovered = hit_test_action(pos, &demo, camera, camera_transform, face_transform);
-        if hovered != *last_mouse_hover {
+
+        // Mouse hover should feel immediate, but only update focus when the
+        // logical target changes. That keeps highlight feedback without forcing
+        // full page rebuilds on every sub-pixel mouse movement.
+        if hovered != *last_mouse_hover && !mouse_drag.active {
             if let Some(action) = hovered {
                 demo.hover(action);
             }
             *last_mouse_hover = hovered;
         }
+
         if buttons.just_pressed(MouseButton::Left) {
+            mouse_drag.begin(pos, hovered);
             if let Some(action) = hovered {
-                demo.click(action);
+                demo.hover(action);
             }
+        }
+        if buttons.pressed(MouseButton::Left) {
+            update_pointer_drag(
+                &mut mouse_drag,
+                pos,
+                hovered,
+                &mut demo,
+                config.gestures.drag_scroll_panes,
+                config.gestures.drag_off_cancels,
+            );
+        }
+        if buttons.just_released(MouseButton::Left) {
+            finish_pointer_drag(&mut mouse_drag, pos, hovered, &mut demo, false, config.gestures.swipe_pages, None);
         }
     }
 
     for touch in touches.read() {
-        if matches!(touch.phase, TouchPhase::Started) {
-            if let Some(action) = hit_test_action(touch.position, &demo, camera, camera_transform, face_transform) {
-                if demo.touch_select_then_tap {
-                    if *last_touch_selection == Some(action) {
-                        demo.click(action);
-                        *last_touch_selection = None;
-                    } else {
-                        demo.hover(action);
-                        *last_touch_selection = Some(action);
-                    }
-                } else {
-                    demo.click(action);
-                    *last_touch_selection = None;
+        let hovered = hit_test_action(touch.position, &demo, camera, camera_transform, face_transform);
+        match touch.phase {
+            TouchPhase::Started => {
+                touch_drag.begin(touch.position, hovered);
+                if let Some(action) = hovered {
+                    demo.hover(action);
                 }
+            }
+            TouchPhase::Moved => {
+                update_pointer_drag(
+                    &mut touch_drag,
+                    touch.position,
+                    hovered,
+                    &mut demo,
+                    config.gestures.drag_scroll_panes,
+                    config.gestures.drag_off_cancels,
+                );
+            }
+            TouchPhase::Ended => {
+                let select_then_tap = demo.touch_select_then_tap;
+                finish_pointer_drag(
+                    &mut touch_drag,
+                    touch.position,
+                    hovered,
+                    &mut demo,
+                    select_then_tap,
+                    config.gestures.swipe_pages,
+                    Some(&mut *last_touch_selection),
+                );
+            }
+            TouchPhase::Canceled => {
+                touch_drag.clear();
+                *last_touch_selection = None;
             }
         }
     }

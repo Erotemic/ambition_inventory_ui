@@ -247,3 +247,39 @@ The Status scrollbar was changed from overlapping track/thumb planes to a
 segmented scroll indicator. The old two-plane version could still shimmer while
 angled in 3D. The segmented indicator avoids self-overlap and should be more
 stable while retaining clear scroll position feedback.
+
+## Gear / consumable demo revision
+
+This revision makes the demo behave more like a tiny real inventory rather than
+only a static UI mockup.
+
+- Gear has slot-specific compatible items:
+  - Weapon: Travel Sword, Hook Spear, Ember Staff
+  - Feet: Iron Boots, Feather Boots, Climbing Spikes
+  - Charm: Compass Charm, River Charm, Guard Charm
+- Selecting a slot updates the compatible item list.
+- Selecting an item moves focus toward the action column.
+- Equip/unequip updates the actual demo state and the summary row.
+- Iron Boots still have the special active/inactive traversal state.
+- Pack consumables now have counts and are consumed when activated:
+  Healing Tincture, Glow Seed, and Travel Ration decrement their count.
+
+This is still intentionally generic: the UI layer does not know Ambition's final
+item database. The demo builds `MenuPageModel` data from simple gameplay state,
+which is the intended integration pattern for real game data.
+
+## Pointer / touch gesture revision
+
+Mouse drag now exercises the same gestures expected on touch devices:
+
+- drag left/right across the active page to swipe between menu faces;
+- press a control, drag off it, and release to cancel activation;
+- drag vertically on the Status page to scroll like a touch scroll pane;
+- touch still supports the configurable `Select + tap` versus `Instant tap`
+  policy from the Status page.
+
+The reusable API exposes `MenuGesturePolicy` in `MenuShellConfig` with separate
+flags for page swipes, drag-off cancel, and drag-scroll panes. The demo enables
+all three by default because this prototype is validating mobile-friendly menu
+feel, but a host game can disable any of them if those gestures conflict with a
+specific platform or control scheme.
