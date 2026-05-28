@@ -1,0 +1,86 @@
+#======================#
+#=== WORKSPACE INFO ===#
+
+[workspace]
+  exclude  = [".gitattributes", ".github", ".gitignore", ".vscode", "docs/*", "promo/*"]
+  members  = ["crate"]
+  resolver = "2"
+
+[workspace.package]
+  authors    = ["IDEDARY"]
+  categories = ["game-development", "gui", "mathematics"]
+  edition    = "2024"
+  keywords   = ["bevy", "bevy-lunex", "layout", "lunex", "ui"]
+  license    = "MIT OR Apache-2.0"
+  repository = "https://github.com/bytestring-net/bevy-lunex"
+  version    = "0.6.0"
+
+  #========================#
+  #=== PROFILE SETTINGS ===#
+
+[profile.dev]
+  debug     = 0
+  opt-level = 1
+  strip     = "debuginfo"
+
+[profile.dev.package."*"]
+  opt-level = 3
+
+[profile.release]
+  codegen-units = 1
+  debug         = 0
+  lto           = "thin"
+  opt-level     = 3
+  panic         = 'abort'
+  strip         = true
+
+  #===============================#
+  #=== DEPENDENCIES & FEATURES ===#
+
+[workspace.dependencies]
+
+  # LIBRARY CRATES
+  bevy_lunex = { path = "crate" }
+
+  #===========================#
+  #=== GAME ENGINE SOURCE === #
+
+  ## GAME ENGINE
+  bevy_app           = { version = "0.18", default-features = false }
+  bevy_asset         = { version = "0.18", default-features = false }
+  bevy_camera        = { version = "0.18", default-features = false }
+  bevy_color         = { version = "0.18", default-features = false }
+  bevy_derive        = { version = "0.18", default-features = false }
+  bevy_ecs           = { version = "0.18", default-features = false }
+  bevy_gizmos        = { version = "0.18", default-features = false }
+  bevy_image         = { version = "0.18", default-features = false }
+  bevy_input         = { version = "0.18", default-features = false }
+  bevy_log           = { version = "0.18", default-features = false }
+  bevy_math          = { version = "0.18", default-features = false }
+  bevy_mesh          = { version = "0.18", default-features = false }
+  bevy_pbr           = { version = "0.18", default-features = false }
+  bevy_picking       = { version = "0.18", default-features = false }
+  bevy_platform      = { version = "0.18", default-features = false }
+  bevy_reflect       = { version = "0.18", default-features = false, features = ["functions"] }
+  bevy_render        = { version = "0.18", default-features = false }
+  bevy_sprite        = { version = "0.18", default-features = false, features = ["bevy_text"] }
+  bevy_sprite_render = { version = "0.18", default-features = false }
+  bevy_text          = { version = "0.18", default-features = false }
+  bevy_time          = { version = "0.18", default-features = false }
+  bevy_transform     = { version = "0.18", default-features = false }
+  bevy_window        = { version = "0.18", default-features = false }
+  bevy_winit         = { version = "0.18", default-features = false, features = ["custom_cursor"] }
+  cosmic-text        = { version = "0.16", features = ["shape-run-cache"] }
+
+  #===============================#
+  #=== GAME ENGINE EXTENSIONS === #
+
+  bevy_rich_text3d = { version = "^0.6" }
+
+  #===========================#
+  #=== RUST MISCELLANEOUS === #
+
+  colored   = { version = "^3.1.1" }
+  getrandom = { version = "^0.3.3", features = ["wasm_js"] }
+  radsort   = { version = "^0.1.1" }
+  rand      = { version = "^0.9.1" }

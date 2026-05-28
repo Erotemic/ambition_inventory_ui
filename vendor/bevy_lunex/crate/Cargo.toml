@@ -1,0 +1,62 @@
+#====================#
+#=== PACKAGE INFO ===#
+
+[package]
+  authors.workspace    = true
+  categories.workspace = true
+  description          = "Blazingly fast retained UI layout engine for Bevy ECS"
+  edition.workspace    = true
+  keywords.workspace   = true
+  license.workspace    = true
+  name                 = "bevy_lunex"
+  repository.workspace = true
+  version.workspace    = true
+
+  #===============================#
+  #=== DEPENDENCIES & FEATURES ===#
+
+[dependencies]
+
+  # GAME ENGINE
+  bevy_app           = { workspace = true }
+  bevy_asset         = { workspace = true }
+  bevy_camera        = { workspace = true }
+  bevy_color         = { workspace = true }
+  bevy_derive        = { workspace = true }
+  bevy_ecs           = { workspace = true }
+  bevy_gizmos        = { workspace = true }
+  bevy_image         = { workspace = true }
+  bevy_input         = { workspace = true }
+  bevy_log           = { workspace = true }
+  bevy_math          = { workspace = true }
+  bevy_mesh          = { workspace = true }
+  bevy_pbr           = { workspace = true }
+  bevy_picking       = { workspace = true }
+  bevy_platform      = { workspace = true }
+  bevy_reflect       = { workspace = true }
+  bevy_render        = { workspace = true }
+  bevy_sprite        = { workspace = true }
+  bevy_sprite_render = { workspace = true }
+  bevy_text          = { workspace = true }
+  bevy_time          = { workspace = true }
+  bevy_transform     = { workspace = true }
+  bevy_window        = { workspace = true }
+  bevy_winit         = { workspace = true }
+  cosmic-text        = { workspace = true }
+
+  # GAME ENGINE EXTENSIONS
+  bevy_rich_text3d = { workspace = true, optional = true }
+
+  # RUST MISCELLANEOUS
+  colored   = { workspace = true }
+  getrandom = { workspace = true, optional = true }
+  radsort   = { workspace = true }
+  rand      = { workspace = true }
+
+[features]
+  default = ["text3d"]
+  text3d  = ["dep:bevy_rich_text3d"]
+  wasm    = ["dep:getrandom"]
+
+[target.'cfg(unix)'.dependencies]
+  bevy_winit = { workspace = true, default-features = false, features = ["x11"] }
