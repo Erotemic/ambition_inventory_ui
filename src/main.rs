@@ -8,6 +8,10 @@ use bevy::input::touch::{TouchInput, TouchPhase};
 use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, SystemCursorIcon};
 use bevy_lunex::prelude::*;
+use ambition_inventory_ui::{
+    MenuColor, MenuControlKind, MenuNode, MenuPageModel, MenuRect, MenuShellEffect,
+    MenuShellEffects, MenuShellPhase, MenuTextAlign, TouchActivationPolicy,
+};
 
 // OoT builds the pause page background as 3 columns x 5 rows of 80x32
 // quads, scales the page by 0.78, and places each page at
@@ -73,6 +77,7 @@ fn main() {
         .insert_resource(InventoryDemo::default())
         .insert_resource(MenuAnimation::default())
         .insert_resource(MenuShell::default())
+        .insert_resource(MenuShellEffects::default())
         .add_systems(Startup, setup)
         .add_systems(Update, menu_toggle_input)
         .add_systems(Update, (keyboard_navigation, mouse_navigation, pointer_hit_test, gamepad_navigation))
@@ -682,6 +687,15 @@ impl MenuShell {
     fn is_visible(&self) -> bool {
         self.target_open || self.openness > 0.02
     }
+
+    fn phase(&self) -> MenuShellPhase {
+        match (self.target_open, self.openness) {
+            (false, open) if open <= 0.02 => MenuShellPhase::Closed,
+            (true, open) if open >= 0.96 => MenuShellPhase::Open,
+            (true, _) => MenuShellPhase::Opening,
+            (false, _) => MenuShellPhase::Closing,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -986,31 +1000,9 @@ fn spawn_face(
             .with_scale(Vec3::new(INSIDE_PAGE_X_FLIP, 1.0, 1.0)),
     ))
     .with_children(|ui| {
-        spawn_panel(ui, materials, 0.0, 0.0, 100.0, 100.0, page.face_color(), None);
-        spawn_cube_edge_frame(ui, materials);
-        spawn_panel(ui, materials, 3.0, 4.0, 94.0, 12.0, Color::srgba(0.16, 0.13, 0.20, 0.92), None);
-        spawn_text(ui, materials, 50.0, 9.5, 7.2, page.label(), TextAlign::Center, Srgba::rgb_u8(238, 222, 186));
-
         let active_face = page == demo.page;
-        spawn_page_tabs(ui, materials, demo, active_face);
-        match page {
-            Page::Gear => spawn_gear_page(ui, materials, demo, active_face),
-            Page::Pack => spawn_pack_page(ui, materials, demo, active_face),
-            Page::Map => spawn_map_page(ui, materials, demo, active_face),
-            Page::Status => spawn_status_page(ui, materials, demo, active_face),
-        }
-
-        spawn_panel(ui, materials, 5.0, 88.0, 90.0, 7.5, Color::srgba(0.02, 0.018, 0.025, 0.88), None);
-        spawn_text(
-            ui,
-            materials,
-            50.0,
-            91.8,
-            3.4,
-            &demo.status,
-            TextAlign::Center,
-            Srgba::rgb_u8(198, 206, 218),
-        );
+        let model = build_page_model(page, demo, active_face);
+        render_page_model(ui, materials, &model);
     });
 }
 
@@ -1063,6 +1055,303 @@ fn apply_oot_open_fold(page: Page, fold: f32, transform: &mut Transform) {
     transform.translation = translation;
     transform.rotation = rotation;
     transform.scale = Vec3::new(INSIDE_PAGE_X_FLIP, 1.0, 1.0);
+}
+
+
+fn mc(color: Color) -> MenuColor {
+    let srgba = color.to_srgba();
+    MenuColor::rgba(srgba.red, srgba.green, srgba.blue, srgba.alpha)
+}
+
+fn menu_color(color: MenuColor) -> Color {
+    Color::srgba(color.r, color.g, color.b, color.a)
+}
+
+fn menu_srgba(color: MenuColor) -> Srgba {
+    let r = (color.r.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let g = (color.g.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let b = (color.b.clamp(0.0, 1.0) * 255.0).round() as u8;
+    Srgba::rgb_u8(r, g, b)
+}
+
+fn menu_align(align: MenuTextAlign) -> TextAlign {
+    match align {
+        MenuTextAlign::Left => TextAlign::Left,
+        MenuTextAlign::Center => TextAlign::Center,
+        MenuTextAlign::Right => TextAlign::Right,
+    }
+}
+
+fn render_page_model(
+    ui: &mut ChildSpawnerCommands,
+    materials: &mut Assets<StandardMaterial>,
+    model: &MenuPageModel<Page, ClickAction>,
+) {
+    spawn_panel(ui, materials, 0.0, 0.0, 100.0, 100.0, menu_color(model.background), None);
+    spawn_cube_edge_frame(ui, materials);
+
+    for node in &model.nodes {
+        match node {
+            MenuNode::Panel { rect, color, action } => {
+                spawn_panel(ui, materials, rect.x, rect.y, rect.w, rect.h, menu_color(*color), *action);
+            }
+            MenuNode::Text { x, y, size, text, align, color } => {
+                spawn_text(ui, materials, *x, *y, *size, text, menu_align(*align), menu_srgba(*color));
+            }
+            MenuNode::Control { rect, kind, label, detail, selected, important, action } => {
+                let color = control_color(*kind, *selected, *important);
+                spawn_panel(ui, materials, rect.x, rect.y, rect.w, rect.h, color, *action);
+                if let Some(detail) = detail {
+                    spawn_text(
+                        ui,
+                        materials,
+                        rect.x + rect.w * 0.5,
+                        rect.y + rect.h * 0.30,
+                        control_label_size(*kind),
+                        label,
+                        TextAlign::Center,
+                        control_label_color(*kind, *selected, *important),
+                    );
+                    spawn_text(
+                        ui,
+                        materials,
+                        rect.x + rect.w * 0.5,
+                        rect.y + rect.h * 0.68,
+                        control_detail_size(*kind),
+                        detail,
+                        TextAlign::Center,
+                        Srgba::rgb_u8(172, 190, 204),
+                    );
+                } else {
+                    spawn_text(
+                        ui,
+                        materials,
+                        rect.x + rect.w * 0.5,
+                        rect.y + rect.h * 0.52,
+                        control_label_size(*kind),
+                        label,
+                        TextAlign::Center,
+                        control_label_color(*kind, *selected, *important),
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn control_color(kind: MenuControlKind, selected: bool, important: bool) -> Color {
+    match kind {
+        MenuControlKind::Tab => {
+            if selected {
+                Color::srgba(0.86, 0.68, 0.30, 0.98)
+            } else if important {
+                Color::srgba(0.75, 0.57, 0.23, 0.95)
+            } else {
+                Color::srgba(0.22, 0.20, 0.25, 0.85)
+            }
+        }
+        MenuControlKind::Action => focus_color(selected, important),
+        MenuControlKind::OptionToggle | MenuControlKind::OptionChoice => {
+            if selected { Color::srgba(0.55, 0.50, 0.68, 0.94) } else { Color::srgba(0.13, 0.10, 0.12, 0.90) }
+        }
+        MenuControlKind::MapMarker => {
+            if selected { Color::srgba(0.82, 0.58, 0.24, 0.96) } else { Color::srgba(0.18, 0.24, 0.18, 0.95) }
+        }
+        _ => focus_color(selected, important),
+    }
+}
+
+fn control_label_size(kind: MenuControlKind) -> f32 {
+    match kind {
+        MenuControlKind::Tab => 2.7,
+        MenuControlKind::MapMarker => 2.0,
+        MenuControlKind::OptionToggle | MenuControlKind::OptionChoice => 2.35,
+        MenuControlKind::Action => 2.8,
+        _ => 2.75,
+    }
+}
+
+fn control_detail_size(kind: MenuControlKind) -> f32 {
+    match kind {
+        MenuControlKind::OptionToggle | MenuControlKind::OptionChoice => 2.35,
+        _ => 2.0,
+    }
+}
+
+fn control_label_color(kind: MenuControlKind, _selected: bool, important: bool) -> Srgba {
+    match kind {
+        MenuControlKind::Tab if important => Srgba::rgb_u8(35, 28, 21),
+        MenuControlKind::OptionToggle | MenuControlKind::OptionChoice => Srgba::rgb_u8(232, 228, 222),
+        _ => Srgba::rgb_u8(238, 229, 202),
+    }
+}
+
+fn build_page_model(page: Page, demo: &InventoryDemo, active_face: bool) -> MenuPageModel<Page, ClickAction> {
+    let mut model = MenuPageModel::new(page, page.label(), mc(page.face_color()));
+    model.panel(MenuRect::new(3.0, 4.0, 94.0, 12.0), mc(Color::srgba(0.16, 0.13, 0.20, 0.92)), None);
+    model.text(50.0, 9.5, 7.2, page.label(), MenuTextAlign::Center, MenuColor::rgba(238.0 / 255.0, 222.0 / 255.0, 186.0 / 255.0, 1.0));
+
+    add_page_tabs(&mut model, demo, active_face);
+    match page {
+        Page::Gear => add_gear_nodes(&mut model, demo, active_face),
+        Page::Pack => add_pack_nodes(&mut model, demo, active_face),
+        Page::Map => add_map_nodes(&mut model, demo, active_face),
+        Page::Status => add_status_nodes(&mut model, demo, active_face),
+    }
+
+    model.panel(MenuRect::new(5.0, 88.0, 90.0, 7.5), mc(Color::srgba(0.02, 0.018, 0.025, 0.88)), None);
+    model.text(50.0, 91.8, 3.4, demo.status.as_str(), MenuTextAlign::Center, MenuColor::rgba(198.0 / 255.0, 206.0 / 255.0, 218.0 / 255.0, 1.0));
+    model
+}
+
+fn add_page_tabs(model: &mut MenuPageModel<Page, ClickAction>, demo: &InventoryDemo, active_face: bool) {
+    for (i, page) in InventoryDemo::tab_pages().iter().enumerate() {
+        let active = *page == demo.page;
+        let selected = demo.focus_area == FocusArea::Tabs && demo.selected_tab == i;
+        model.control(
+            MenuRect::new(12.0 + i as f32 * 19.0, 18.0, 16.5, 6.5),
+            MenuControlKind::Tab,
+            page.label(),
+            None,
+            selected,
+            active,
+            active_face.then_some(ClickAction::Goto(*page)),
+        );
+    }
+}
+
+fn add_gear_nodes(model: &mut MenuPageModel<Page, ClickAction>, demo: &InventoryDemo, active_face: bool) {
+    model.text(18.0, 31.5, 3.4, "Slots", MenuTextAlign::Center, MenuColor::rgba(235.0 / 255.0, 225.0 / 255.0, 200.0 / 255.0, 1.0));
+    model.text(50.0, 31.5, 3.4, "Boots", MenuTextAlign::Center, MenuColor::rgba(235.0 / 255.0, 225.0 / 255.0, 200.0 / 255.0, 1.0));
+    model.text(82.0, 31.5, 3.4, "Actions", MenuTextAlign::Center, MenuColor::rgba(235.0 / 255.0, 225.0 / 255.0, 200.0 / 255.0, 1.0));
+
+    for (i, slot) in demo.slots().iter().enumerate() {
+        let y = 37.0 + i as f32 * 12.0;
+        let selected = demo.focus_area == FocusArea::Slots && demo.selected_slot == i;
+        model.control(
+            MenuRect::new(7.0, y, 23.0, 9.2),
+            MenuControlKind::Slot,
+            *slot,
+            Some(demo.slot_value(i)),
+            selected,
+            i == 1,
+            active_face.then_some(ClickAction::SelectSlot(i)),
+        );
+    }
+
+    for (i, item) in demo.items().iter().enumerate() {
+        let y = 37.0 + i as f32 * 12.0;
+        let detail = match i {
+            0 => "Heavy footing / current resist",
+            1 => "Light steps / jump control",
+            _ => "Wall contact / ledge grip",
+        };
+        model.control(
+            MenuRect::new(36.5, y, 27.0, 9.2),
+            MenuControlKind::Item,
+            *item,
+            Some(detail.to_string()),
+            demo.focus_area == FocusArea::Items && demo.selected_item == i,
+            i == 0,
+            active_face.then_some(ClickAction::SelectItem(i)),
+        );
+    }
+
+    for (i, action_label) in demo.actions().iter().enumerate() {
+        let y = 37.0 + i as f32 * 12.0;
+        model.control(
+            MenuRect::new(70.5, y, 23.0, 9.2),
+            MenuControlKind::Action,
+            *action_label,
+            None,
+            demo.focus_area == FocusArea::Actions && demo.selected_action == i,
+            i < 2,
+            active_face.then_some(ClickAction::Action(i)),
+        );
+    }
+
+    let boot_state = if demo.iron_boots_equipped {
+        if demo.iron_boots_active { "Feet: Iron Boots are ACTIVE" } else { "Feet: Iron Boots equipped, inactive" }
+    } else {
+        "Feet: empty; Iron Boots available"
+    };
+    model.panel(
+        MenuRect::new(14.0, 74.0, 72.0, 9.0),
+        mc(Color::srgba(0.08, 0.09, 0.12, 0.84)),
+        active_face.then_some(ClickAction::FocusArea(FocusArea::Actions)),
+    );
+    model.text(50.0, 78.6, 3.2, boot_state, MenuTextAlign::Center, MenuColor::rgba(221.0 / 255.0, 230.0 / 255.0, 236.0 / 255.0, 1.0));
+}
+
+fn add_pack_nodes(model: &mut MenuPageModel<Page, ClickAction>, demo: &InventoryDemo, active_face: bool) {
+    model.text(50.0, 32.7, 3.2, "Pack separates quick consumables, key items, and trade goods.", MenuTextAlign::Center, MenuColor::rgba(224.0 / 255.0, 226.0 / 255.0, 215.0 / 255.0, 1.0));
+    for (i, item) in pack_items().iter().enumerate() {
+        let x = if i % 2 == 0 { 16.0 } else { 53.5 };
+        let y = 41.0 + (i / 2) as f32 * 12.4;
+        model.control(
+            MenuRect::new(x, y, 31.0, 9.5),
+            MenuControlKind::Item,
+            item.0,
+            Some(item.1.to_string()),
+            demo.focus_area == FocusArea::Items && demo.selected_pack == i,
+            item.2,
+            active_face.then_some(ClickAction::PackItem(i)),
+        );
+    }
+}
+
+fn add_map_nodes(model: &mut MenuPageModel<Page, ClickAction>, demo: &InventoryDemo, active_face: bool) {
+    model.text(50.0, 33.5, 3.4, "Map face: markers are controls, not a decorative image.", MenuTextAlign::Center, MenuColor::rgba(224.0 / 255.0, 232.0 / 255.0, 218.0 / 255.0, 1.0));
+    model.panel(MenuRect::new(18.0, 41.0, 64.0, 31.0), mc(Color::srgba(0.08, 0.13, 0.105, 0.93)), None);
+    for i in 0..5 {
+        let y = 46.0 + i as f32 * 5.0;
+        model.panel(MenuRect::new(24.0, y, 52.0 - i as f32 * 5.5, 1.2), mc(Color::srgba(0.38, 0.48, 0.38, 0.80)), None);
+    }
+    for (i, (label, x, y)) in map_markers().iter().enumerate() {
+        model.control(
+            MenuRect::new(*x, *y, 13.0, 6.0),
+            MenuControlKind::MapMarker,
+            *label,
+            None,
+            demo.focus_area == FocusArea::Items && demo.selected_map == i,
+            false,
+            active_face.then_some(ClickAction::MapMarker(i)),
+        );
+    }
+    model.text(50.0, 78.0, 2.9, "Select markers with arrows/D-pad or pointer.", MenuTextAlign::Center, MenuColor::rgba(185.0 / 255.0, 204.0 / 255.0, 188.0 / 255.0, 1.0));
+}
+
+fn add_status_nodes(model: &mut MenuPageModel<Page, ClickAction>, demo: &InventoryDemo, active_face: bool) {
+    model.text(50.0, 34.0, 3.4, "Character status / demo settings", MenuTextAlign::Center, MenuColor::rgba(235.0 / 255.0, 224.0 / 255.0, 220.0 / 255.0, 1.0));
+    let rows = status_rows(demo);
+    let max_start = rows.len().saturating_sub(STATUS_VISIBLE_ROWS);
+    let start = demo.status_scroll.min(max_start);
+    let end = (start + STATUS_VISIBLE_ROWS).min(rows.len());
+
+    model.panel(MenuRect::new(17.0, 39.0, 66.0, 45.0), mc(Color::srgba(0.065, 0.050, 0.062, 0.94)), None);
+    for (visible_idx, i) in (start..end).enumerate() {
+        let (k, v, kind) = &rows[i];
+        let y = 43.0 + visible_idx as f32 * 8.2;
+        model.control(
+            MenuRect::new(20.0, y, 58.0, 6.8),
+            *kind,
+            *k,
+            Some(v.clone()),
+            demo.focus_area == FocusArea::Items && demo.selected_status == i,
+            matches!(kind, MenuControlKind::OptionToggle | MenuControlKind::OptionChoice),
+            active_face.then_some(ClickAction::StatusRow(i)),
+        );
+    }
+
+    if rows.len() > STATUS_VISIBLE_ROWS {
+        let track_h = 38.0;
+        let thumb_h = (STATUS_VISIBLE_ROWS as f32 / rows.len() as f32 * track_h).max(8.0);
+        let max_scroll = rows.len() - STATUS_VISIBLE_ROWS;
+        let thumb_y = 42.0 + (demo.status_scroll as f32 / max_scroll as f32) * (track_h - thumb_h);
+        model.panel(MenuRect::new(80.3, 42.0, 1.2, track_h), mc(Color::srgba(0.10, 0.09, 0.11, 0.96)), None);
+        model.panel(MenuRect::new(80.1, thumb_y, 1.6, thumb_h), mc(Color::srgba(0.70, 0.55, 0.26, 0.98)), None);
+        model.text(50.0, 82.4, 2.0, "Scroll pane: wheel, touch, or D-pad follows selection.", MenuTextAlign::Center, MenuColor::rgba(188.0 / 255.0, 190.0 / 255.0, 205.0 / 255.0, 1.0));
+    }
 }
 
 fn spawn_page_tabs(ui: &mut ChildSpawnerCommands, materials: &mut Assets<StandardMaterial>, demo: &InventoryDemo, active_face: bool) {
@@ -1146,7 +1435,7 @@ fn spawn_gear_page(ui: &mut ChildSpawnerCommands, materials: &mut Assets<Standar
 fn spawn_pack_page(ui: &mut ChildSpawnerCommands, materials: &mut Assets<StandardMaterial>, demo: &InventoryDemo, active_face: bool) {
     let items = pack_items();
     spawn_text(ui, materials, 50.0, 34.0, 3.4, "Pack keeps consumables away from gear decisions.", TextAlign::Center, Srgba::rgb_u8(224, 226, 215));
-    for (i, (name, detail)) in items.iter().enumerate() {
+    for (i, (name, detail, _important)) in items.iter().enumerate() {
         let x = if i % 2 == 0 { 17.0 } else { 53.0 };
         let y = 43.0 + (i / 2) as f32 * 14.0;
         let selected = demo.focus_area == FocusArea::Items && demo.selected_pack == i;
@@ -1186,7 +1475,7 @@ fn spawn_status_page(ui: &mut ChildSpawnerCommands, materials: &mut Assets<Stand
 
     spawn_panel(ui, materials, 17.0, 39.0, 66.0, 45.0, Color::srgba(0.065, 0.050, 0.062, 0.94), None);
     for (visible_idx, i) in (start..end).enumerate() {
-        let (k, v) = &rows[i];
+        let (k, v, _kind) = &rows[i];
         let y = 43.0 + visible_idx as f32 * 8.2;
         let selected = demo.focus_area == FocusArea::Items && demo.selected_status == i;
         let color = if selected { Color::srgba(0.55, 0.50, 0.68, 0.94) } else { Color::srgba(0.13, 0.10, 0.12, 0.90) };
@@ -1223,12 +1512,14 @@ struct HitTarget {
     action: ClickAction,
 }
 
-fn pack_items() -> [(&'static str, &'static str); 4] {
+fn pack_items() -> [(&'static str, &'static str, bool); 6] {
     [
-        ("Healing Tincture", "Consumable x3"),
-        ("Glow Seed", "Cavern light x5"),
-        ("Old Key", "Quest item"),
-        ("Travel Ration", "Consumable x8"),
+        ("Healing Tincture", "Consumable x3", true),
+        ("Glow Seed", "Cavern light x5", false),
+        ("Old Key", "Quest item / locked", true),
+        ("Travel Ration", "Stamina snack x8", false),
+        ("River Pearl", "Trade good x2", false),
+        ("Sketch Map", "Field note", false),
     ]
 }
 
@@ -1237,7 +1528,9 @@ fn pack_status(idx: usize) -> &'static str {
         0 => "Healing Tincture selected: restores health.",
         1 => "Glow Seed selected: marks dark paths.",
         2 => "Old Key selected: quest item, safe from selling.",
-        _ => "Travel Ration selected: restores stamina over time.",
+        3 => "Travel Ration selected: restores stamina over time.",
+        4 => "River Pearl selected: trade good, can be sold safely.",
+        _ => "Sketch Map selected: field note linked to the Map page.",
     }
 }
 
@@ -1257,18 +1550,20 @@ fn map_status(idx: usize) -> &'static str {
     }
 }
 
-fn status_rows(demo: &InventoryDemo) -> Vec<(&'static str, String)> {
+fn status_rows(demo: &InventoryDemo) -> Vec<(&'static str, String, MenuControlKind)> {
     vec![
-        ("Mobility", if demo.iron_boots_active { "Anchored" } else { "Normal" }.to_string()),
-        ("Feet slot", if demo.iron_boots_equipped { "Iron Boots" } else { "Empty" }.to_string()),
-        ("[ ] Input hints", checked_label(demo.input_hints_enabled)),
-        ("Layout density", if demo.compact_layout { "Compact" } else { "Cozy" }.to_string()),
-        ("Detail level", demo.detail_level.label().to_string()),
-        ("Touch mode", if demo.touch_select_then_tap { "Select + tap" } else { "Instant tap" }.to_string()),
-        ("Menu toggle", demo.menu_toggle_binding.label().to_string()),
-        ("Open/close", demo.open_style.label().to_string()),
-        ("Page switch", "Q/E, wheel, bumpers".to_string()),
-        ("Component", "Lunex menu shell".to_string()),
+        ("Mobility", if demo.iron_boots_active { "Anchored" } else { "Normal" }.to_string(), MenuControlKind::Decoration),
+        ("Feet slot", if demo.iron_boots_equipped { "Iron Boots" } else { "Empty" }.to_string(), MenuControlKind::Decoration),
+        ("[ ] Input hints", checked_label(demo.input_hints_enabled), MenuControlKind::OptionToggle),
+        ("Layout density", if demo.compact_layout { "Compact" } else { "Cozy" }.to_string(), MenuControlKind::OptionChoice),
+        ("Detail level", demo.detail_level.label().to_string(), MenuControlKind::OptionChoice),
+        ("Touch mode", if demo.touch_select_then_tap { "Select + tap" } else { "Instant tap" }.to_string(), MenuControlKind::OptionChoice),
+        ("Menu toggle", demo.menu_toggle_binding.label().to_string(), MenuControlKind::OptionChoice),
+        ("Open/close", demo.open_style.label().to_string(), MenuControlKind::OptionChoice),
+        ("SFX hook", "Queued shell effects".to_string(), MenuControlKind::Decoration),
+        ("Music hook", "Host can duck/muffle on Opened".to_string(), MenuControlKind::Decoration),
+        ("Page switch", "Q/E, wheel, bumpers".to_string(), MenuControlKind::Decoration),
+        ("Component", "Lunex data-driven shell".to_string(), MenuControlKind::Decoration),
     ]
 }
 
@@ -1277,67 +1572,49 @@ fn checked_label(enabled: bool) -> String {
 }
 
 fn status_row_count() -> usize {
-    10
+    12
 }
 
 fn status_row_message(idx: usize, demo: &InventoryDemo) -> String {
     let rows = status_rows(demo);
-    let (label, value) = &rows[idx.min(rows.len().saturating_sub(1))];
+    let (label, value, _) = &rows[idx.min(rows.len().saturating_sub(1))];
     format!("{label}: {value}")
 }
 
 fn move_pack_index(current: usize, dx: i32, dy: i32) -> usize {
-    let col = (current % 2) as i32;
-    let row = (current / 2) as i32;
-    let next_col = (col + dx).rem_euclid(2);
-    let next_row = (row + dy).rem_euclid(2);
-    (next_row * 2 + next_col) as usize
+    let len = pack_items().len() as i32;
+    let columns = 2;
+    let rows = (len + columns - 1) / columns;
+    let col = (current as i32 % columns).clamp(0, columns - 1);
+    let row = (current as i32 / columns).clamp(0, rows - 1);
+    let mut next_col = (col + dx).rem_euclid(columns);
+    let mut next_row = (row + dy).rem_euclid(rows);
+    let mut next = next_row * columns + next_col;
+    if next >= len {
+        next_row = 0;
+        next_col = next_col.min(columns - 1);
+        next = next_row * columns + next_col;
+    }
+    next as usize
 }
 
 fn active_hit_targets(demo: &InventoryDemo) -> Vec<HitTarget> {
-    let mut out = Vec::new();
-    for (i, page) in InventoryDemo::tab_pages().iter().enumerate() {
-        out.push(HitTarget {
-            rect: HitRect { x: 12.0 + i as f32 * 19.0, y: 18.0, w: 16.5, h: 6.5 },
-            action: ClickAction::Goto(*page),
-        });
-    }
-
-    match demo.page {
-        Page::Gear => {
-            for i in 0..demo.slots().len() {
-                out.push(HitTarget { rect: HitRect { x: 7.0, y: 37.0 + i as f32 * 12.0, w: 23.0, h: 9.2 }, action: ClickAction::SelectSlot(i) });
-            }
-            for i in 0..demo.items().len() {
-                out.push(HitTarget { rect: HitRect { x: 36.5, y: 37.0 + i as f32 * 12.0, w: 27.0, h: 9.2 }, action: ClickAction::SelectItem(i) });
-            }
-            for i in 0..demo.actions().len() {
-                out.push(HitTarget { rect: HitRect { x: 70.5, y: 37.0 + i as f32 * 12.0, w: 23.0, h: 9.2 }, action: ClickAction::Action(i) });
-            }
-            out.push(HitTarget { rect: HitRect { x: 14.0, y: 74.0, w: 72.0, h: 9.0 }, action: ClickAction::FocusArea(FocusArea::Actions) });
-        }
-        Page::Pack => {
-            for i in 0..pack_items().len() {
-                let x = if i % 2 == 0 { 17.0 } else { 53.0 };
-                let y = 43.0 + (i / 2) as f32 * 14.0;
-                out.push(HitTarget { rect: HitRect { x, y, w: 30.0, h: 10.0 }, action: ClickAction::PackItem(i) });
-            }
-        }
-        Page::Map => {
-            for (i, (_label, x, y)) in map_markers().iter().enumerate() {
-                out.push(HitTarget { rect: HitRect { x: *x, y: *y, w: 13.0, h: 6.0 }, action: ClickAction::MapMarker(i) });
-            }
-        }
-        Page::Status => {
-            let count = status_row_count();
-            let start = demo.status_scroll.min(count.saturating_sub(STATUS_VISIBLE_ROWS));
-            let end = (start + STATUS_VISIBLE_ROWS).min(count);
-            for (visible_idx, i) in (start..end).enumerate() {
-                out.push(HitTarget { rect: HitRect { x: 20.0, y: 43.0 + visible_idx as f32 * 8.2, w: 58.0, h: 6.8 }, action: ClickAction::StatusRow(i) });
-            }
-        }
-    }
-    out
+    let model = build_page_model(demo.page, demo, true);
+    model
+        .nodes
+        .iter()
+        .filter_map(|node| match node {
+            MenuNode::Panel { rect, action: Some(action), .. } => Some(HitTarget {
+                rect: HitRect { x: rect.x, y: rect.y, w: rect.w, h: rect.h },
+                action: *action,
+            }),
+            MenuNode::Control { rect, action: Some(action), .. } => Some(HitTarget {
+                rect: HitRect { x: rect.x, y: rect.y, w: rect.w, h: rect.h },
+                action: *action,
+            }),
+            _ => None,
+        })
+        .collect()
 }
 
 fn rect_corners(rect: HitRect) -> [Vec3; 4] {
@@ -1776,12 +2053,16 @@ fn animate_menu_ring(
     demo: Res<InventoryDemo>,
     mut menu: ResMut<MenuAnimation>,
     mut shell: ResMut<MenuShell>,
+    mut effects: ResMut<MenuShellEffects>,
+    mut last_phase: Local<Option<MenuShellPhase>>,
     mut ring_query: Query<(&mut Transform, &mut Visibility), (With<MenuRing>, Without<LunexFaceRoot>)>,
     mut face_query: Query<(&PageFace, &mut Transform), (With<LunexFaceRoot>, Without<MenuRing>)>,
 ) {
     let Ok((mut transform, mut visibility)) = ring_query.single_mut() else {
         return;
     };
+
+    let phase_before = shell.phase();
 
     let delta = shortest_angle_delta(menu.current_angle, menu.target_angle);
     let rotate_step = 1.0 - (-ROTATE_SPEED * time.delta_secs()).exp();
@@ -1799,6 +2080,22 @@ fn animate_menu_ring(
     }
 
     *visibility = if shell.is_visible() { Visibility::Visible } else { Visibility::Hidden };
+
+    let phase_after = shell.phase();
+    if *last_phase != Some(phase_after) {
+        let effect = match phase_after {
+            MenuShellPhase::Opening => MenuShellEffect::Opening,
+            MenuShellPhase::Open => MenuShellEffect::Opened,
+            MenuShellPhase::Closing => MenuShellEffect::Closing,
+            MenuShellPhase::Closed => MenuShellEffect::Closed,
+        };
+        effects.push(effect);
+        *last_phase = Some(phase_after);
+    } else if phase_before != phase_after {
+        // Kept for clarity if Bevy scheduling initializes the Local before the
+        // first observed phase.
+        *last_phase = Some(phase_after);
+    }
 
     let open = smoothstep(shell.openness.clamp(0.0, 1.0));
     transform.rotation = Quat::from_rotation_y(menu.current_angle);

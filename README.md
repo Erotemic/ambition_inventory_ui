@@ -174,3 +174,46 @@ The OoT-style open/close animation now includes the lower-edge hinge detail from
 - all four faces fold together from about `1.6` radians to `0` on open, and back on close.
 
 This keeps the existing tight cube geometry where adjacent faces meet at visible edges. The remaining OoT detail still not implemented as a true material effect is per-page alpha fade; the code comments preserve the source behavior, but the prototype currently avoids per-frame material-alpha churn while the interaction model is still changing.
+
+## Data-driven API / reusable crate direction
+
+This revision starts separating the reusable menu component from the demo game
+state.
+
+The public API surface lives in `src/lib.rs` and is intentionally small:
+
+- `MenuPageModel<PageId, Action>` describes one page/face.
+- `MenuNode<Action>` describes panels, text, and actionable controls.
+- `MenuRect` uses normalized page coordinates so the same data can render to a
+  Lunex 3D page, a flat debug view, or a future mobile layout.
+- `MenuControlKind` gives controls semantic roles such as tab, slot, item,
+  action, option, map marker, or scrollbar.
+- `MenuShellEffects` is a host hook queue. The UI module pushes lifecycle cues
+  such as `Opening`, `Opened`, `Closing`, and `Closed`; a game can drain those
+  to play sfx, pause gameplay, muffle music, or update a game-mode resource.
+
+The demo still owns gameplay state (`InventoryDemo`), but it now builds each
+page through `build_page_model(...)` and the Lunex renderer consumes that model.
+Pointer hit testing also reads the same model, which keeps drawing and input in
+sync. This is the shape to preserve when extracting a true library crate:
+
+game data -> `MenuPageModel` -> Lunex renderer / hit testing -> `Action` back to game
+
+## Ambition integration notes
+
+The uploaded Ambition docs emphasize that menus should consume semantic menu
+input rather than raw device input, that touch should use conservative
+select-then-confirm behavior for rows, and that pause/menu state should suppress
+gameplay movement. This prototype aligns with those constraints:
+
+- keyboard, mouse, touch, and gamepad all map into the same selected control and
+  action path;
+- touch mode is configurable between `Select + tap` and `Instant tap`;
+- the shell locks interaction while opening/closing;
+- lifecycle effects are exposed without hard-coding audio or music policy;
+- dev-style toggles are visible on the Status/settings page rather than hidden
+  only behind hotkeys.
+
+The next extraction pass should move the Lunex renderer into a plugin with a
+host-provided page-builder callback or resource, plus systems that emit host
+`Action` values when controls are activated.
