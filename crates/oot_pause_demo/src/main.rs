@@ -31,7 +31,6 @@ const DEPTH_BACKGROUND: f32 = -0.05;
 const DEPTH_LARGE_PANEL: f32 = -0.18;
 const DEPTH_CARD: f32 = -0.34;
 const DEPTH_ACTION: f32 = -0.46;
-const DEPTH_TEXT: f32 = -0.70;
 const DEPTH_EDGE: f32 = -0.82;
 const DEPTH_ICON: f32 = -0.74;
 const DEPTH_TEXT_TOP: f32 = -0.90;
@@ -147,9 +146,10 @@ impl OotDemo {
     fn click(&mut self, action: OotAction) {
         self.selected = action;
         match action {
-            OotAction::Goto(page) => self.goto_page(page),
-            OotAction::EdgeLeft => self.previous_page(),
-            OotAction::EdgeRight => self.next_page(),
+            // Inside-cube visual semantics: the left edge prompt / LB pulls the left face into view.
+            OotAction::EdgeLeft => self.next_page(),
+            // The right edge prompt / RB pulls the right face into view.
+            OotAction::EdgeRight => self.previous_page(),
             OotAction::Item(idx) => {
                 let item = oot_items()[idx];
                 self.status = format!("{} selected. Assign to a C-button in a host game.", item.name);
@@ -265,15 +265,6 @@ impl OotPage {
         }
     }
 
-    fn short(self) -> &'static str {
-        match self {
-            OotPage::Items => "ITEM",
-            OotPage::Equipment => "GEAR",
-            OotPage::Map => "MAP",
-            OotPage::Quest => "QUEST",
-        }
-    }
-
     fn face_color(self) -> Color {
         match self {
             OotPage::Items => Color::srgb(0.040, 0.105, 0.155),
@@ -283,19 +274,10 @@ impl OotPage {
         }
     }
 
-    fn icon(self) -> &'static str {
-        match self {
-            OotPage::Items => "icons/oot/tab_items.png",
-            OotPage::Equipment => "icons/oot/tab_equipment.png",
-            OotPage::Map => "icons/oot/tab_map.png",
-            OotPage::Quest => "icons/oot/tab_quest.png",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 enum OotAction {
-    Goto(OotPage),
     EdgeLeft,
     EdgeRight,
     Item(usize),
@@ -308,9 +290,8 @@ enum OotAction {
 impl OotAction {
     fn describe_hover(self, demo: &OotDemo) -> String {
         match self {
-            OotAction::Goto(page) => format!("Open {}.", page.label()),
-            OotAction::EdgeLeft => format!("Rotate to {}.", OotPage::from_index(demo.page.index() - 1).label()),
-            OotAction::EdgeRight => format!("Rotate to {}.", OotPage::from_index(demo.page.index() + 1).label()),
+            OotAction::EdgeLeft => format!("Rotate to {}.", OotPage::from_index(demo.page.index() + 1).label()),
+            OotAction::EdgeRight => format!("Rotate to {}.", OotPage::from_index(demo.page.index() - 1).label()),
             OotAction::Item(idx) => oot_items()[idx].name.to_string(),
             OotAction::EquipChoice { slot, choice } => format!("{}: {}", equip_slots()[slot].name, equip_slots()[slot].choices[choice].name),
             OotAction::MapMarker(idx) => map_markers()[idx].name.to_string(),
@@ -529,9 +510,7 @@ fn build_page_model(page: OotPage, demo: &OotDemo, active_face: bool) -> MenuPag
     model
 }
 
-fn add_edge_buttons(model: &mut MenuPageModel<OotPage, OotAction>, page: OotPage, active_face: bool) {
-    let left = OotPage::from_index(page.index() - 1);
-    let right = OotPage::from_index(page.index() + 1);
+fn add_edge_buttons(model: &mut MenuPageModel<OotPage, OotAction>, _page: OotPage, active_face: bool) {
     model.control_with_icon(
         MenuRect::new(1.2, 38.0, 10.0, 24.0),
         MenuControlKind::Tab,
@@ -554,9 +533,6 @@ fn add_edge_buttons(model: &mut MenuPageModel<OotPage, OotAction>, page: OotPage
     );
 }
 
-fn add_title_band(_model: &mut MenuPageModel<OotPage, OotAction>, _page: OotPage, _demo: &OotDemo, _active_face: bool) {
-    // OoT-style demo does not use a top four-page selector strip; page changes are via edge prompts.
-}
 fn add_items_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, active_face: bool) {
     model.panel(MenuRect::new(14.0, 20.0, 72.0, 54.0), mc(Color::srgba(0.02, 0.03, 0.055, 0.94)), None);
     let cols = 6;
@@ -574,7 +550,7 @@ fn add_items_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo,
         model.control_with_icon(
             MenuRect::new(x, y, cell_w, cell_h),
             MenuControlKind::Item,
-            item.short,
+            "",
             item.detail.map(|s| s.to_string()),
             Some(item.icon),
             demo.selected == OotAction::Item(i),
@@ -1099,10 +1075,10 @@ fn keyboard_navigation(keys: Res<ButtonInput<KeyCode>>, shell: Res<MenuShell>, m
     }
     let before_page = demo.page;
     if keys.just_pressed(KeyCode::KeyQ) || keys.just_pressed(KeyCode::PageUp) {
-        demo.previous_page();
+        demo.next_page();
     }
     if keys.just_pressed(KeyCode::KeyE) || keys.just_pressed(KeyCode::PageDown) {
-        demo.next_page();
+        demo.previous_page();
     }
     if keys.just_pressed(KeyCode::ArrowLeft) || keys.just_pressed(KeyCode::KeyA) {
         demo.move_spatial(-1, 0);
@@ -1131,12 +1107,12 @@ fn gamepad_navigation(gamepads: Query<&Gamepad>, shell: Res<MenuShell>, mut demo
     let before_page = demo.page;
     for gamepad in &gamepads {
         if gamepad.just_pressed(GamepadButton::LeftTrigger) || gamepad.just_pressed(GamepadButton::LeftTrigger2) {
-            // User-facing semantics: LB moves to the page on the left edge.
-            demo.previous_page();
+            // Match the visible edge prompts: LB pulls the left face into view.
+            demo.next_page();
         }
         if gamepad.just_pressed(GamepadButton::RightTrigger) || gamepad.just_pressed(GamepadButton::RightTrigger2) {
-            // User-facing semantics: RB moves to the page on the right edge.
-            demo.next_page();
+            // Match the visible edge prompts: RB pulls the right face into view.
+            demo.previous_page();
         }
         if gamepad.just_pressed(GamepadButton::DPadLeft) {
             demo.move_spatial(-1, 0);
@@ -1170,9 +1146,9 @@ fn mouse_navigation(mut wheel: MessageReader<MouseWheel>, shell: Res<MenuShell>,
     let before_page = demo.page;
     for ev in wheel.read() {
         if ev.y > 0.0 {
-            demo.previous_page();
-        } else if ev.y < 0.0 {
             demo.next_page();
+        } else if ev.y < 0.0 {
+            demo.previous_page();
         }
     }
     if demo.page != before_page {
@@ -1338,61 +1314,61 @@ fn shortest_angle_delta(current: f32, target: f32) -> f32 {
 }
 
 #[derive(Clone, Copy)]
-struct OotItem { name: &'static str, short: &'static str, icon: &'static str, detail: Option<&'static str>, important: bool }
+struct OotItem { name: &'static str, _short: &'static str, icon: &'static str, detail: Option<&'static str>, important: bool }
 fn oot_items() -> [OotItem; 24] {
     [
-        OotItem { name: "Deku Stick", short: "Stick", icon: "icons/oot/deku_stick.png", detail: Some("x99"), important: false },
-        OotItem { name: "Deku Nut", short: "Nut", icon: "icons/oot/deku_nut.png", detail: Some("x99"), important: false },
-        OotItem { name: "Bomb", short: "Bomb", icon: "icons/oot/bomb.png", detail: Some("x99"), important: false },
-        OotItem { name: "Fairy Bow", short: "Bow", icon: "icons/oot/bow.png", detail: Some("x50"), important: true },
-        OotItem { name: "Fire Arrow", short: "Fire", icon: "icons/oot/fire_arrow.png", detail: None, important: true },
-        OotItem { name: "Ice Arrow", short: "Ice", icon: "icons/oot/ice_arrow.png", detail: None, important: true },
-        OotItem { name: "Light Arrow", short: "Light", icon: "icons/oot/light_arrow.png", detail: None, important: true },
-        OotItem { name: "Ocarina of Time", short: "Ocarina", icon: "icons/oot/ocarina.png", detail: None, important: true },
-        OotItem { name: "Bombchu", short: "Bombchu", icon: "icons/oot/bombchu.png", detail: Some("x50"), important: false },
-        OotItem { name: "Hookshot", short: "Hook", icon: "icons/oot/hookshot.png", detail: None, important: true },
-        OotItem { name: "Longshot", short: "Long", icon: "icons/oot/longshot.png", detail: None, important: true },
-        OotItem { name: "Boomerang", short: "Boom", icon: "icons/oot/boomerang.png", detail: None, important: true },
-        OotItem { name: "Lens of Truth", short: "Lens", icon: "icons/oot/lens.png", detail: None, important: true },
-        OotItem { name: "Magic Bean", short: "Bean", icon: "icons/oot/beans.png", detail: Some("x10"), important: false },
-        OotItem { name: "Megaton Hammer", short: "Hammer", icon: "icons/oot/hammer.png", detail: None, important: true },
-        OotItem { name: "Bottle", short: "Bottle", icon: "icons/oot/bottle.png", detail: Some("Fairy"), important: true },
-        OotItem { name: "Pocket Egg", short: "Egg", icon: "icons/oot/egg.png", detail: None, important: false },
-        OotItem { name: "Letter", short: "Letter", icon: "icons/oot/letter.png", detail: None, important: false },
-        OotItem { name: "Mask", short: "Mask", icon: "icons/oot/mask.png", detail: None, important: false },
-        OotItem { name: "Claim Check", short: "Check", icon: "icons/oot/claim_check.png", detail: None, important: false },
-        OotItem { name: "Bottle", short: "Blue", icon: "icons/oot/bottle.png", detail: Some("Fire"), important: true },
-        OotItem { name: "Bottle", short: "Milk", icon: "icons/oot/bottle.png", detail: Some("Milk"), important: true },
-        OotItem { name: "Bottle", short: "Poe", icon: "icons/oot/bottle.png", detail: Some("Poe"), important: true },
-        OotItem { name: "Empty Bottle", short: "Empty", icon: "icons/oot/empty_bottle.png", detail: None, important: false },
+        OotItem { name: "Deku Stick", _short: "Stick", icon: "icons/oot/deku_stick.png", detail: Some("x99"), important: false },
+        OotItem { name: "Deku Nut", _short: "Nut", icon: "icons/oot/deku_nut.png", detail: Some("x99"), important: false },
+        OotItem { name: "Bomb", _short: "Bomb", icon: "icons/oot/bomb.png", detail: Some("x99"), important: false },
+        OotItem { name: "Fairy Bow", _short: "Bow", icon: "icons/oot/bow.png", detail: Some("x50"), important: true },
+        OotItem { name: "Fire Arrow", _short: "Fire", icon: "icons/oot/fire_arrow.png", detail: None, important: true },
+        OotItem { name: "Ice Arrow", _short: "Ice", icon: "icons/oot/ice_arrow.png", detail: None, important: true },
+        OotItem { name: "Light Arrow", _short: "Light", icon: "icons/oot/light_arrow.png", detail: None, important: true },
+        OotItem { name: "Ocarina of Time", _short: "Ocarina", icon: "icons/oot/ocarina.png", detail: None, important: true },
+        OotItem { name: "Bombchu", _short: "Bombchu", icon: "icons/oot/bombchu.png", detail: Some("x50"), important: false },
+        OotItem { name: "Hookshot", _short: "Hook", icon: "icons/oot/hookshot.png", detail: None, important: true },
+        OotItem { name: "Longshot", _short: "Long", icon: "icons/oot/longshot.png", detail: None, important: true },
+        OotItem { name: "Boomerang", _short: "Boom", icon: "icons/oot/boomerang.png", detail: None, important: true },
+        OotItem { name: "Lens of Truth", _short: "Lens", icon: "icons/oot/lens.png", detail: None, important: true },
+        OotItem { name: "Magic Bean", _short: "Bean", icon: "icons/oot/beans.png", detail: Some("x10"), important: false },
+        OotItem { name: "Megaton Hammer", _short: "Hammer", icon: "icons/oot/hammer.png", detail: None, important: true },
+        OotItem { name: "Bottle", _short: "Bottle", icon: "icons/oot/bottle.png", detail: Some("Fairy"), important: true },
+        OotItem { name: "Pocket Egg", _short: "Egg", icon: "icons/oot/egg.png", detail: None, important: false },
+        OotItem { name: "Letter", _short: "Letter", icon: "icons/oot/letter.png", detail: None, important: false },
+        OotItem { name: "Mask", _short: "Mask", icon: "icons/oot/mask.png", detail: None, important: false },
+        OotItem { name: "Claim Check", _short: "Check", icon: "icons/oot/claim_check.png", detail: None, important: false },
+        OotItem { name: "Bottle", _short: "Blue", icon: "icons/oot/bottle.png", detail: Some("Fire"), important: true },
+        OotItem { name: "Bottle", _short: "Milk", icon: "icons/oot/bottle.png", detail: Some("Milk"), important: true },
+        OotItem { name: "Bottle", _short: "Poe", icon: "icons/oot/bottle.png", detail: Some("Poe"), important: true },
+        OotItem { name: "Empty Bottle", _short: "Empty", icon: "icons/oot/empty_bottle.png", detail: None, important: false },
     ]
 }
 
 #[derive(Clone, Copy)]
-struct EquipChoice { name: &'static str, short: &'static str, icon: &'static str }
+struct EquipChoice { name: &'static str, _short: &'static str, icon: &'static str }
 #[derive(Clone, Copy)]
 struct EquipSlot { name: &'static str, choices: [EquipChoice; 3] }
 fn equip_slots() -> [EquipSlot; 4] {
     [
         EquipSlot { name: "Sword", choices: [
-            EquipChoice { name: "Kokiri Sword", short: "Kok", icon: "icons/oot/kokiri_sword.png" },
-            EquipChoice { name: "Master Sword", short: "Mas", icon: "icons/oot/master_sword.png" },
-            EquipChoice { name: "Biggoron Sword", short: "Big", icon: "icons/oot/biggoron_sword.png" },
+            EquipChoice { name: "Kokiri Sword", _short: "Kok", icon: "icons/oot/kokiri_sword.png" },
+            EquipChoice { name: "Master Sword", _short: "Mas", icon: "icons/oot/master_sword.png" },
+            EquipChoice { name: "Biggoron Sword", _short: "Big", icon: "icons/oot/biggoron_sword.png" },
         ]},
         EquipSlot { name: "Shield", choices: [
-            EquipChoice { name: "Deku Shield", short: "Deku", icon: "icons/oot/deku_shield.png" },
-            EquipChoice { name: "Hylian Shield", short: "Hyl", icon: "icons/oot/hylian_shield.png" },
-            EquipChoice { name: "Mirror Shield", short: "Mir", icon: "icons/oot/mirror_shield.png" },
+            EquipChoice { name: "Deku Shield", _short: "Deku", icon: "icons/oot/deku_shield.png" },
+            EquipChoice { name: "Hylian Shield", _short: "Hyl", icon: "icons/oot/hylian_shield.png" },
+            EquipChoice { name: "Mirror Shield", _short: "Mir", icon: "icons/oot/mirror_shield.png" },
         ]},
         EquipSlot { name: "Tunic", choices: [
-            EquipChoice { name: "Kokiri Tunic", short: "Kok", icon: "icons/oot/kokiri_tunic.png" },
-            EquipChoice { name: "Goron Tunic", short: "Gor", icon: "icons/oot/goron_tunic.png" },
-            EquipChoice { name: "Zora Tunic", short: "Zora", icon: "icons/oot/zora_tunic.png" },
+            EquipChoice { name: "Kokiri Tunic", _short: "Kok", icon: "icons/oot/kokiri_tunic.png" },
+            EquipChoice { name: "Goron Tunic", _short: "Gor", icon: "icons/oot/goron_tunic.png" },
+            EquipChoice { name: "Zora Tunic", _short: "Zora", icon: "icons/oot/zora_tunic.png" },
         ]},
         EquipSlot { name: "Boots", choices: [
-            EquipChoice { name: "Kokiri Boots", short: "Kok", icon: "icons/oot/kokiri_boots.png" },
-            EquipChoice { name: "Iron Boots", short: "Iron", icon: "icons/oot/iron_boots.png" },
-            EquipChoice { name: "Hover Boots", short: "Hover", icon: "icons/oot/hover_boots.png" },
+            EquipChoice { name: "Kokiri Boots", _short: "Kok", icon: "icons/oot/kokiri_boots.png" },
+            EquipChoice { name: "Iron Boots", _short: "Iron", icon: "icons/oot/iron_boots.png" },
+            EquipChoice { name: "Hover Boots", _short: "Hover", icon: "icons/oot/hover_boots.png" },
         ]},
     ]
 }
@@ -1412,46 +1388,23 @@ fn map_markers() -> [MapMarker; 8] {
     ]
 }
 
-
-const MEDALLION_POS: [(f32, f32); 6] = [
-    (74.0, 38.0),  // Forest
-    (74.0, 6.0),   // Fire
-    (46.0, -12.0), // Water
-    (18.0, 6.0),   // Spirit
-    (18.0, 38.0),  // Shadow
-    (46.0, 56.0),  // Light
-];
-const STONE_POS: [(f32, f32); 3] = [
-    (20.0, -46.0),
-    (46.0, -46.0),
-    (72.0, -46.0),
-];
-
-fn oot_quest_quad_to_rect(src_x: f32, src_y: f32, src_size: f32) -> (f32, f32, f32) {
-    // OoT quest vertices use a 240 x 160-ish page centered at the origin.
-    let x = (src_x + 120.0) / 240.0 * 100.0;
-    let y = (80.0 - src_y) / 160.0 * 100.0;
-    let size = src_size / 240.0 * 100.0;
-    (x, y, size)
-}
-
 #[derive(Clone, Copy)]
-struct QuestIcon { name: &'static str, short: &'static str, icon: &'static str }
+struct QuestIcon { name: &'static str, _short: &'static str, icon: &'static str }
 fn quest_icons() -> [QuestIcon; 6] {
     [
-        QuestIcon { name: "Forest Medallion", short: "Fo", icon: "icons/oot/med_forest.png" },
-        QuestIcon { name: "Fire Medallion", short: "Fi", icon: "icons/oot/med_fire.png" },
-        QuestIcon { name: "Water Medallion", short: "Wa", icon: "icons/oot/med_water.png" },
-        QuestIcon { name: "Spirit Medallion", short: "Sp", icon: "icons/oot/med_spirit.png" },
-        QuestIcon { name: "Shadow Medallion", short: "Sh", icon: "icons/oot/med_shadow.png" },
-        QuestIcon { name: "Light Medallion", short: "Li", icon: "icons/oot/med_light.png" },
+        QuestIcon { name: "Forest Medallion", _short: "Fo", icon: "icons/oot/med_forest.png" },
+        QuestIcon { name: "Fire Medallion", _short: "Fi", icon: "icons/oot/med_fire.png" },
+        QuestIcon { name: "Water Medallion", _short: "Wa", icon: "icons/oot/med_water.png" },
+        QuestIcon { name: "Spirit Medallion", _short: "Sp", icon: "icons/oot/med_spirit.png" },
+        QuestIcon { name: "Shadow Medallion", _short: "Sh", icon: "icons/oot/med_shadow.png" },
+        QuestIcon { name: "Light Medallion", _short: "Li", icon: "icons/oot/med_light.png" },
     ]
 }
 fn stones() -> [QuestIcon; 3] {
     [
-        QuestIcon { name: "Kokiri Emerald", short: "Em", icon: "icons/oot/stone_emerald.png" },
-        QuestIcon { name: "Goron Ruby", short: "Ru", icon: "icons/oot/stone_ruby.png" },
-        QuestIcon { name: "Zora Sapphire", short: "Sa", icon: "icons/oot/stone_sapphire.png" },
+        QuestIcon { name: "Kokiri Emerald", _short: "Em", icon: "icons/oot/stone_emerald.png" },
+        QuestIcon { name: "Goron Ruby", _short: "Ru", icon: "icons/oot/stone_ruby.png" },
+        QuestIcon { name: "Zora Sapphire", _short: "Sa", icon: "icons/oot/stone_sapphire.png" },
     ]
 }
 
@@ -1464,20 +1417,20 @@ fn all_quest_icons() -> Vec<QuestIcon> {
 }
 
 #[derive(Clone, Copy)]
-struct Song { name: &'static str, short: &'static str, icon: &'static str, pattern: &'static str }
+struct Song { name: &'static str, _short: &'static str, icon: &'static str, pattern: &'static str }
 fn songs() -> [Song; 12] {
     [
-        Song { name: "Minuet of Forest", short: "Min", icon: "icons/oot/song_minuet.png", pattern: "A ↑ ← → ← →" },
-        Song { name: "Bolero of Fire", short: "Bol", icon: "icons/oot/song_bolero.png", pattern: "↓ A ↓ A → ↓ → ↓" },
-        Song { name: "Serenade of Water", short: "Ser", icon: "icons/oot/song_serenade.png", pattern: "A ↓ → → ←" },
-        Song { name: "Requiem of Spirit", short: "Req", icon: "icons/oot/song_requiem.png", pattern: "A ↓ A → ↓ A" },
-        Song { name: "Nocturne of Shadow", short: "Noc", icon: "icons/oot/song_nocturne.png", pattern: "← → → A ← → ↓" },
-        Song { name: "Prelude of Light", short: "Pre", icon: "icons/oot/song_prelude.png", pattern: "↑ → ↑ → ← ↑" },
-        Song { name: "Zelda's Lullaby", short: "Zel", icon: "icons/oot/song_lullaby.png", pattern: "← ↑ → ← ↑ →" },
-        Song { name: "Epona's Song", short: "Epo", icon: "icons/oot/song_epona.png", pattern: "↑ ← → ↑ ← →" },
-        Song { name: "Saria's Song", short: "Sar", icon: "icons/oot/song_saria.png", pattern: "↓ → ← ↓ → ←" },
-        Song { name: "Sun's Song", short: "Sun", icon: "icons/oot/song_sun.png", pattern: "→ ↓ ↑ → ↓ ↑" },
-        Song { name: "Song of Time", short: "Tim", icon: "icons/oot/song_time.png", pattern: "→ A ↓ → A ↓" },
-        Song { name: "Song of Storms", short: "Sto", icon: "icons/oot/song_storms.png", pattern: "A ↓ ↑ A ↓ ↑" },
+        Song { name: "Minuet of Forest", _short: "Min", icon: "icons/oot/song_minuet.png", pattern: "A ↑ ← → ← →" },
+        Song { name: "Bolero of Fire", _short: "Bol", icon: "icons/oot/song_bolero.png", pattern: "↓ A ↓ A → ↓ → ↓" },
+        Song { name: "Serenade of Water", _short: "Ser", icon: "icons/oot/song_serenade.png", pattern: "A ↓ → → ←" },
+        Song { name: "Requiem of Spirit", _short: "Req", icon: "icons/oot/song_requiem.png", pattern: "A ↓ A → ↓ A" },
+        Song { name: "Nocturne of Shadow", _short: "Noc", icon: "icons/oot/song_nocturne.png", pattern: "← → → A ← → ↓" },
+        Song { name: "Prelude of Light", _short: "Pre", icon: "icons/oot/song_prelude.png", pattern: "↑ → ↑ → ← ↑" },
+        Song { name: "Zelda's Lullaby", _short: "Zel", icon: "icons/oot/song_lullaby.png", pattern: "← ↑ → ← ↑ →" },
+        Song { name: "Epona's Song", _short: "Epo", icon: "icons/oot/song_epona.png", pattern: "↑ ← → ↑ ← →" },
+        Song { name: "Saria's Song", _short: "Sar", icon: "icons/oot/song_saria.png", pattern: "↓ → ← ↓ → ←" },
+        Song { name: "Sun's Song", _short: "Sun", icon: "icons/oot/song_sun.png", pattern: "→ ↓ ↑ → ↓ ↑" },
+        Song { name: "Song of Time", _short: "Tim", icon: "icons/oot/song_time.png", pattern: "→ A ↓ → A ↓" },
+        Song { name: "Song of Storms", _short: "Sto", icon: "icons/oot/song_storms.png", pattern: "A ↓ ↑ A ↓ ↑" },
     ]
 }
