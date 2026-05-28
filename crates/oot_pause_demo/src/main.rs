@@ -1,0 +1,1483 @@
+use std::f32::consts::{FRAC_PI_2, PI};
+use std::sync::Arc;
+
+use bevy::anti_alias::fxaa::Fxaa;
+use bevy::core_pipeline::oit::OrderIndependentTransparencySettings;
+use bevy::input::mouse::MouseWheel;
+use bevy::input::touch::{TouchInput, TouchPhase};
+use bevy::prelude::*;
+use bevy::window::{PrimaryWindow, SystemCursorIcon};
+use bevy_lunex::prelude::*;
+
+use ambition_inventory_ui::{
+    AmbitionMenuControl, AmbitionMenuPage, AmbitionMenuRoot, MenuColor, MenuControlKind, MenuFocusKey, MenuNode,
+    MenuOpenCloseStyle, MenuPageModel, MenuRect, MenuShellConfig, MenuShellEffect, MenuShellEffects, MenuShellPhase,
+    MenuTextAlign, MenuVisualState,
+};
+
+// Source-derived pause geometry notes:
+// - z_kaleido_scope builds pause pages from a 3 * 80 by 5 * 32 page, scaled by 0.78.
+// - R_PAUSE_DEPTH_OFFSET / 100.0 is 93.55, and 2 * 93.55 ~= 240 * 0.78.
+// - That means adjacent pages meet at cube edges instead of floating apart.
+const PAGE_RADIUS: f32 = 2.85;
+const PAGE_W: f32 = PAGE_RADIUS * 2.0;
+const PAGE_H: f32 = PAGE_W * (160.0 / 240.0);
+const CAMERA_EYE: Vec3 = Vec3::new(0.0, 0.0, -2.20);
+const CAMERA_LOOK: Vec3 = Vec3::new(0.0, 0.0, 0.0);
+const INSIDE_PAGE_X_FLIP: f32 = -1.0;
+const OOT_PAGE_FOLD_RADIANS: f32 = 1.60;
+const MIN_OPEN_SCALE: f32 = 0.64;
+const DEPTH_BACKGROUND: f32 = -0.05;
+const DEPTH_LARGE_PANEL: f32 = -0.18;
+const DEPTH_CARD: f32 = -0.34;
+const DEPTH_ACTION: f32 = -0.46;
+const DEPTH_TEXT: f32 = -0.70;
+const DEPTH_EDGE: f32 = -0.82;
+const DEPTH_ICON: f32 = -0.74;
+const DEPTH_TEXT_TOP: f32 = -0.90;
+const FONT_FAMILY: &str = "DejaVu Sans";
+
+fn main() {
+    App::new()
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "Ambition Inventory UI - OoT Functional Pause Demo".to_string(),
+                resolution: (1180, 760).into(),
+                ..default()
+            }),
+            ..default()
+        }))
+        .add_plugins((UiLunexPlugins, MeshPickingPlugin))
+        .insert_resource(ClearColor(Color::srgb(0.012, 0.011, 0.018)))
+        .insert_resource(LoadFonts {
+            font_directories: vec![
+                "assets/fonts".to_string(),
+                "/usr/share/fonts".to_string(),
+                "/usr/local/share/fonts".to_string(),
+            ],
+            ..Default::default()
+        })
+        .insert_resource(OotDemo::default())
+        .insert_resource(MenuAnimation::default())
+        .insert_resource(MenuShell::default_open())
+        .insert_resource(MenuShellEffects::default())
+        .insert_resource(MenuShellConfig {
+            open_close_style: MenuOpenCloseStyle::OotPageFold,
+            page_rotate_speed: 5.2,
+            open_close_speed: 8.0,
+            ..Default::default()
+        })
+        .add_systems(Startup, setup)
+        .add_systems(Update, menu_toggle_input)
+        .add_systems(Update, (keyboard_navigation, mouse_navigation, pointer_hit_test, gamepad_navigation))
+        .add_systems(Update, (animate_menu_ring, rebuild_lunex_faces))
+        .run();
+}
+
+#[derive(Resource, Clone, Debug)]
+struct OotDemo {
+    page: OotPage,
+    selected: OotAction,
+    equipped_sword: usize,
+    equipped_shield: usize,
+    equipped_tunic: usize,
+    equipped_boots: usize,
+    status: String,
+    revision: u64,
+}
+
+impl Default for OotDemo {
+    fn default() -> Self {
+        Self {
+            page: OotPage::Items,
+            selected: OotAction::Item(0),
+            equipped_sword: 1,
+            equipped_shield: 1,
+            equipped_tunic: 0,
+            equipped_boots: 0,
+            status: "Complete inventory demo. Use edge buttons or bumpers to rotate pages.".to_string(),
+            revision: 0,
+        }
+    }
+}
+
+impl OotDemo {
+    fn bump(&mut self) {
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    fn pages() -> [OotPage; 4] {
+        [OotPage::Items, OotPage::Map, OotPage::Quest, OotPage::Equipment]
+    }
+
+    fn default_action_for_page(page: OotPage) -> OotAction {
+        match page {
+            OotPage::Items => OotAction::Item(0),
+            OotPage::Equipment => OotAction::EquipChoice { slot: 0, choice: 1 },
+            OotPage::Map => OotAction::MapMarker(0),
+            OotPage::Quest => OotAction::QuestIcon(0),
+        }
+    }
+
+    fn goto_page(&mut self, page: OotPage) {
+        if self.page != page {
+            self.page = page;
+            self.selected = Self::default_action_for_page(page);
+            self.status = format!("{} page", page.label());
+            self.bump();
+        }
+    }
+
+    fn next_page(&mut self) {
+        self.goto_page(OotPage::from_index(self.page.index() + 1));
+    }
+
+    fn previous_page(&mut self) {
+        self.goto_page(OotPage::from_index(self.page.index() - 1));
+    }
+
+    fn hover(&mut self, action: OotAction) {
+        if self.selected != action {
+            self.selected = action;
+            self.status = action.describe_hover(self);
+            self.bump();
+        }
+    }
+
+    fn click(&mut self, action: OotAction) {
+        self.selected = action;
+        match action {
+            OotAction::Goto(page) => self.goto_page(page),
+            OotAction::EdgeLeft => self.previous_page(),
+            OotAction::EdgeRight => self.next_page(),
+            OotAction::Item(idx) => {
+                let item = oot_items()[idx];
+                self.status = format!("{} selected. Assign to a C-button in a host game.", item.name);
+                self.bump();
+            }
+            OotAction::EquipChoice { slot, choice } => {
+                match slot {
+                    0 => self.equipped_sword = choice,
+                    1 => self.equipped_shield = choice,
+                    2 => self.equipped_tunic = choice,
+                    _ => self.equipped_boots = choice,
+                }
+                let option = equip_slots()[slot].choices[choice];
+                self.status = format!("Equipped {}.", option.name);
+                self.bump();
+            }
+            OotAction::MapMarker(idx) => {
+                let marker = map_markers()[idx];
+                self.status = format!("Map marker: {}.", marker.name);
+                self.bump();
+            }
+            OotAction::QuestIcon(idx) => {
+                let q = all_quest_icons()[idx];
+                self.status = format!("{} achieved.", q.name);
+                self.bump();
+            }
+            OotAction::Song(idx) => {
+                let song = songs()[idx];
+                self.status = format!("{} reminder: {}", song.name, song.pattern);
+                self.bump();
+            }
+        }
+    }
+
+    fn activate_selected(&mut self) {
+        self.click(self.selected);
+    }
+
+    fn move_spatial(&mut self, dx: i32, dy: i32) {
+        let targets = active_hit_targets(self);
+        let current = self.selected;
+        let Some(current_target) = targets.iter().find(|t| t.action == current) else {
+            if let Some(first) = targets.first() {
+                self.hover(first.action);
+            }
+            return;
+        };
+        let current_center = current_target.rect.center();
+        let mut best: Option<(f32, OotAction)> = None;
+        for target in targets {
+            if target.action == current {
+                continue;
+            }
+            let center = target.rect.center();
+            let delta = center - current_center;
+            let forward = if dx < 0 {
+                -delta.x
+            } else if dx > 0 {
+                delta.x
+            } else if dy < 0 {
+                -delta.y
+            } else {
+                delta.y
+            };
+            if forward <= 0.25 {
+                continue;
+            }
+            let perp = if dx != 0 { delta.y.abs() } else { delta.x.abs() };
+            let score = forward + perp * 0.42;
+            if best.map(|(best_score, _)| score < best_score).unwrap_or(true) {
+                best = Some((score, target.action));
+            }
+        }
+        if let Some((_, action)) = best {
+            self.hover(action);
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+enum OotPage {
+    Items,
+    Map,
+    Quest,
+    Equipment,
+}
+
+impl OotPage {
+    fn index(self) -> i32 {
+        match self {
+            OotPage::Items => 0,
+            OotPage::Map => 1,
+            OotPage::Quest => 2,
+            OotPage::Equipment => 3,
+        }
+    }
+
+    fn from_index(idx: i32) -> Self {
+        match idx.rem_euclid(4) {
+            0 => OotPage::Items,
+            1 => OotPage::Map,
+            2 => OotPage::Quest,
+            _ => OotPage::Equipment,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            OotPage::Items => "Select Item",
+            OotPage::Equipment => "Equipment",
+            OotPage::Map => "Map",
+            OotPage::Quest => "Quest Status",
+        }
+    }
+
+    fn short(self) -> &'static str {
+        match self {
+            OotPage::Items => "ITEM",
+            OotPage::Equipment => "GEAR",
+            OotPage::Map => "MAP",
+            OotPage::Quest => "QUEST",
+        }
+    }
+
+    fn face_color(self) -> Color {
+        match self {
+            OotPage::Items => Color::srgb(0.040, 0.105, 0.155),
+            OotPage::Equipment => Color::srgb(0.095, 0.075, 0.035),
+            OotPage::Map => Color::srgb(0.040, 0.090, 0.060),
+            OotPage::Quest => Color::srgb(0.090, 0.070, 0.100),
+        }
+    }
+
+    fn icon(self) -> &'static str {
+        match self {
+            OotPage::Items => "icons/oot/tab_items.png",
+            OotPage::Equipment => "icons/oot/tab_equipment.png",
+            OotPage::Map => "icons/oot/tab_map.png",
+            OotPage::Quest => "icons/oot/tab_quest.png",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+enum OotAction {
+    Goto(OotPage),
+    EdgeLeft,
+    EdgeRight,
+    Item(usize),
+    EquipChoice { slot: usize, choice: usize },
+    MapMarker(usize),
+    QuestIcon(usize),
+    Song(usize),
+}
+
+impl OotAction {
+    fn describe_hover(self, demo: &OotDemo) -> String {
+        match self {
+            OotAction::Goto(page) => format!("Open {}.", page.label()),
+            OotAction::EdgeLeft => format!("Rotate to {}.", OotPage::from_index(demo.page.index() - 1).label()),
+            OotAction::EdgeRight => format!("Rotate to {}.", OotPage::from_index(demo.page.index() + 1).label()),
+            OotAction::Item(idx) => oot_items()[idx].name.to_string(),
+            OotAction::EquipChoice { slot, choice } => format!("{}: {}", equip_slots()[slot].name, equip_slots()[slot].choices[choice].name),
+            OotAction::MapMarker(idx) => map_markers()[idx].name.to_string(),
+            OotAction::QuestIcon(idx) => all_quest_icons()[idx].name.to_string(),
+            OotAction::Song(idx) => songs()[idx].name.to_string(),
+        }
+    }
+}
+
+#[derive(Resource, Clone, Debug)]
+struct MenuAnimation {
+    current_angle: f32,
+    target_angle: f32,
+}
+
+impl Default for MenuAnimation {
+    fn default() -> Self {
+        Self { current_angle: 0.0, target_angle: 0.0 }
+    }
+}
+
+impl MenuAnimation {
+    fn set_page(&mut self, page: OotPage) {
+        self.target_angle = -page.index() as f32 * FRAC_PI_2;
+    }
+}
+
+#[derive(Resource, Clone, Debug)]
+struct MenuShell {
+    openness: f32,
+    target_open: bool,
+}
+
+impl MenuShell {
+    fn default_open() -> Self {
+        Self { openness: 1.0, target_open: true }
+    }
+
+    fn toggle(&mut self) {
+        self.target_open = !self.target_open;
+    }
+
+    fn is_visible(&self) -> bool {
+        self.target_open || self.openness > 0.01
+    }
+
+    fn is_interactive(&self) -> bool {
+        self.target_open && self.openness > 0.985
+    }
+
+    fn phase(&self) -> MenuShellPhase {
+        if self.target_open {
+            if self.openness >= 0.985 { MenuShellPhase::Open } else { MenuShellPhase::Opening }
+        } else if self.openness <= 0.015 {
+            MenuShellPhase::Closed
+        } else {
+            MenuShellPhase::Closing
+        }
+    }
+}
+
+#[derive(Component)]
+struct MenuRing;
+#[derive(Component)]
+struct LunexFaceRoot;
+#[derive(Component)]
+struct PageFace(OotPage);
+
+fn setup(
+    mut commands: Commands,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
+    demo: Res<OotDemo>,
+) {
+    commands.spawn((
+        DirectionalLight { illuminance: 2800.0, shadows_enabled: false, ..default() },
+        Transform::from_xyz(1.5, 3.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+    commands.spawn((
+        Camera3d::default(),
+        OrderIndependentTransparencySettings::default(),
+        Msaa::Off,
+        Fxaa::default(),
+        Transform::from_translation(CAMERA_EYE).looking_at(CAMERA_LOOK, Vec3::Y),
+    ));
+    let ring = commands
+        .spawn((
+            Name::new("OoT-style Lunex pause room"),
+            AmbitionMenuRoot,
+            MenuRing,
+            UiRoot3d,
+            Transform::default(),
+            Visibility::Visible,
+        ))
+        .id();
+    commands.entity(ring).with_children(|ring| {
+        spawn_all_faces(ring, &demo, &mut materials, &asset_server);
+    });
+}
+
+fn rebuild_lunex_faces(
+    mut commands: Commands,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
+    demo: Res<OotDemo>,
+    ring_query: Query<Entity, With<MenuRing>>,
+    face_query: Query<(Entity, &PageFace), With<LunexFaceRoot>>,
+    mut last_revision: Local<Option<u64>>,
+    mut last_page: Local<Option<OotPage>>,
+) {
+    if *last_revision == Some(demo.revision) {
+        return;
+    }
+    let Ok(ring) = ring_query.single() else { return; };
+    let page_changed = last_page.map(|p| p != demo.page).unwrap_or(true);
+    if page_changed {
+        for (entity, _) in &face_query {
+            commands.entity(entity).despawn();
+        }
+        commands.entity(ring).with_children(|ring| spawn_all_faces(ring, &demo, &mut materials, &asset_server));
+    } else {
+        for (entity, face) in &face_query {
+            if face.0 == demo.page {
+                commands.entity(entity).despawn();
+            }
+        }
+        commands.entity(ring).with_children(|ring| spawn_face(ring, demo.page, &demo, &mut materials, &asset_server));
+    }
+    *last_revision = Some(demo.revision);
+    *last_page = Some(demo.page);
+}
+
+fn spawn_all_faces(
+    ring: &mut ChildSpawnerCommands,
+    demo: &OotDemo,
+    materials: &mut Assets<StandardMaterial>,
+    asset_server: &AssetServer,
+) {
+    for page in OotDemo::pages() {
+        spawn_face(ring, page, demo, materials, asset_server);
+    }
+}
+
+fn spawn_face(
+    ring: &mut ChildSpawnerCommands,
+    page: OotPage,
+    demo: &OotDemo,
+    materials: &mut Assets<StandardMaterial>,
+    asset_server: &AssetServer,
+) {
+    let (translation, rotation) = page_face_transform(page);
+    let mut face = ring.spawn((
+        Name::new(format!("{} OoT face", page.label())),
+        LunexFaceRoot,
+        PageFace(page),
+        AmbitionMenuPage { id: page, active: page == demo.page },
+        UiRoot3d,
+        UiLayoutRoot::new_3d(),
+        Dimension::from((PAGE_W, PAGE_H)),
+        Transform::from_translation(translation)
+            .with_rotation(rotation)
+            .with_scale(Vec3::new(INSIDE_PAGE_X_FLIP, 1.0, 1.0)),
+    ));
+    face.with_children(|ui| {
+        let active_face = page == demo.page;
+        let model = build_page_model(page, demo, active_face);
+        render_page_model(ui, materials, asset_server, &model);
+    });
+}
+
+fn page_face_transform(page: OotPage) -> (Vec3, Quat) {
+    match page {
+        OotPage::Items => (Vec3::new(0.0, 0.0, PAGE_RADIUS), Quat::IDENTITY),
+        OotPage::Map => (Vec3::new(PAGE_RADIUS, 0.0, 0.0), Quat::from_rotation_y(FRAC_PI_2)),
+        OotPage::Quest => (Vec3::new(0.0, 0.0, -PAGE_RADIUS), Quat::from_rotation_y(PI)),
+        OotPage::Equipment => (Vec3::new(-PAGE_RADIUS, 0.0, 0.0), Quat::from_rotation_y(-FRAC_PI_2)),
+    }
+}
+
+fn reset_face_transform(page: OotPage, transform: &mut Transform) {
+    let (translation, rotation) = page_face_transform(page);
+    transform.translation = translation;
+    transform.rotation = rotation;
+    transform.scale = Vec3::new(INSIDE_PAGE_X_FLIP, 1.0, 1.0);
+}
+
+fn apply_oot_open_fold(page: OotPage, fold: f32, transform: &mut Transform) {
+    let (base_translation, base_rotation) = page_face_transform(page);
+    // Matches the source transform idea: pages are fixed around the origin,
+    // fold around their lower edge, and side pages use Z-pitch before their Y-facing rotation.
+    let fold_rotation = match page {
+        OotPage::Items => Quat::from_rotation_x(fold),
+        OotPage::Quest => Quat::from_rotation_x(-fold),
+        OotPage::Map => Quat::from_rotation_z(-fold),
+        OotPage::Equipment => Quat::from_rotation_z(fold),
+    };
+    let rotation = fold_rotation * base_rotation;
+    let hinge_local = Vec3::new(0.0, -PAGE_H * 0.5, 0.0);
+    let hinge_world = base_translation + base_rotation * hinge_local;
+    let translation = hinge_world - rotation * hinge_local;
+    transform.translation = translation;
+    transform.rotation = rotation;
+    transform.scale = Vec3::new(INSIDE_PAGE_X_FLIP, 1.0, 1.0);
+}
+
+fn build_page_model(page: OotPage, demo: &OotDemo, active_face: bool) -> MenuPageModel<OotPage, OotAction> {
+    let mut model = MenuPageModel::new(page, page.label(), mc(page.face_color()));
+    add_edge_buttons(&mut model, page, active_face);
+    match page {
+        OotPage::Items => add_items_page(&mut model, demo, active_face),
+        OotPage::Equipment => add_equipment_page(&mut model, demo, active_face),
+        OotPage::Map => add_map_page(&mut model, demo, active_face),
+        OotPage::Quest => add_quest_page(&mut model, demo, active_face),
+    }
+    add_status_band(&mut model, demo);
+    model
+}
+
+fn add_edge_buttons(model: &mut MenuPageModel<OotPage, OotAction>, page: OotPage, active_face: bool) {
+    let left = OotPage::from_index(page.index() - 1);
+    let right = OotPage::from_index(page.index() + 1);
+    model.control_with_icon(
+        MenuRect::new(1.2, 38.0, 10.0, 24.0),
+        MenuControlKind::Tab,
+        "",
+        Some("L".to_string()),
+        Some("icons/oot/edge_left.png"),
+        false,
+        true,
+        active_face.then_some(OotAction::EdgeLeft),
+    );
+    model.control_with_icon(
+        MenuRect::new(88.8, 38.0, 10.0, 24.0),
+        MenuControlKind::Tab,
+        "",
+        Some("R".to_string()),
+        Some("icons/oot/edge_right.png"),
+        false,
+        true,
+        active_face.then_some(OotAction::EdgeRight),
+    );
+}
+
+fn add_title_band(_model: &mut MenuPageModel<OotPage, OotAction>, _page: OotPage, _demo: &OotDemo, _active_face: bool) {
+    // OoT-style demo does not use a top four-page selector strip; page changes are via edge prompts.
+}
+fn add_items_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, active_face: bool) {
+    model.panel(MenuRect::new(14.0, 20.0, 72.0, 54.0), mc(Color::srgba(0.02, 0.03, 0.055, 0.94)), None);
+    let cols = 6;
+    let cell_w = 10.0;
+    let cell_h = 11.5;
+    let gap_x = 1.4;
+    let gap_y = 1.5;
+    let x0 = 17.0;
+    let y0 = 24.0;
+    for (i, item) in oot_items().iter().enumerate() {
+        let col = i % cols;
+        let row = i / cols;
+        let x = x0 + col as f32 * (cell_w + gap_x);
+        let y = y0 + row as f32 * (cell_h + gap_y);
+        model.control_with_icon(
+            MenuRect::new(x, y, cell_w, cell_h),
+            MenuControlKind::Item,
+            item.short,
+            item.detail.map(|s| s.to_string()),
+            Some(item.icon),
+            demo.selected == OotAction::Item(i),
+            item.important,
+            active_face.then_some(OotAction::Item(i)),
+        );
+    }
+    model.text(50.0, 79.0, 2.8, "Complete item grid: 6 x 4 like the pause inventory page", MenuTextAlign::Center, mc(Color::srgb(0.75, 0.83, 0.90)));
+}
+
+fn add_equipment_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, active_face: bool) {
+    model.panel(MenuRect::new(14.0, 20.0, 72.0, 58.0), mc(Color::srgba(0.055, 0.042, 0.025, 1.0)), None);
+
+    // Closer to OoT's equipment page: an upgrades column at far left, a player preview
+    // in the left-center, and the 3-choice equipment grid on the right.
+    model.panel(MenuRect::new(29.0, 25.0, 16.0, 43.0), mc(Color::srgba(0.045, 0.100, 0.065, 1.0)), None);
+    model.control_with_icon(
+        MenuRect::new(30.7, 27.0, 12.6, 37.5),
+        MenuControlKind::Decoration,
+        "LINK",
+        Some("preview".to_string()),
+        Some("icons/oot/player.png"),
+        false,
+        false,
+        None,
+    );
+
+    let upgrade_icons = [
+        ("Quiver", "icons/oot/bow.png"),
+        ("Bomb", "icons/oot/bomb.png"),
+        ("Power", "icons/oot/stone_ruby.png"),
+        ("Scale", "icons/oot/stone_sapphire.png"),
+    ];
+    for (row, (label, icon)) in upgrade_icons.iter().enumerate() {
+        let y = 26.0 + row as f32 * 12.0;
+        model.control_with_icon(
+            MenuRect::new(17.5, y, 8.4, 8.4),
+            MenuControlKind::Decoration,
+            *label,
+            None,
+            Some(*icon),
+            false,
+            false,
+            None,
+        );
+    }
+
+    let row_y = [26.0, 38.0, 50.0, 62.0];
+    let col_x = [50.0, 62.0, 74.0];
+    for (slot_idx, slot) in equip_slots().iter().enumerate() {
+        model.text(47.0, row_y[slot_idx] + 4.3, 2.15, slot.name, MenuTextAlign::Right, mc(Color::srgb(0.92, 0.80, 0.50)));
+        for (choice_idx, choice) in slot.choices.iter().enumerate() {
+            let equipped = match slot_idx {
+                0 => demo.equipped_sword == choice_idx,
+                1 => demo.equipped_shield == choice_idx,
+                2 => demo.equipped_tunic == choice_idx,
+                _ => demo.equipped_boots == choice_idx,
+            };
+            let action = OotAction::EquipChoice { slot: slot_idx, choice: choice_idx };
+            model.control_with_icon(
+                MenuRect::new(col_x[choice_idx], row_y[slot_idx], 9.5, 9.5),
+                MenuControlKind::Item,
+                "",
+                equipped.then(|| "E".to_string()),
+                Some(choice.icon),
+                demo.selected == action || equipped,
+                equipped,
+                active_face.then_some(action),
+            );
+        }
+    }
+    model.text(50.0, 78.7, 2.5, "Equipment grid: upgrades / player preview / 3 choices per slot", MenuTextAlign::Center, mc(Color::srgb(0.82, 0.72, 0.48)));
+}
+
+fn add_map_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, active_face: bool) {
+    // Keep the earlier relative marker placement, but use one opaque map plate plus
+    // non-overlapping decorative cells to avoid depth shimmer on the angled face.
+    model.panel(MenuRect::new(18.0, 19.0, 64.0, 60.0), mc(Color::srgba(0.022, 0.070, 0.048, 1.0)), None);
+    model.panel(MenuRect::new(23.0, 24.0, 54.0, 43.0), mc(Color::srgba(0.070, 0.125, 0.075, 1.0)), None);
+    model.text(50.0, 30.0, 3.0, "HYRULE FIELD", MenuTextAlign::Center, mc(Color::srgb(0.85, 0.88, 0.64)));
+    model.text(39.5, 63.5, 2.0, "LAKE", MenuTextAlign::Center, mc(Color::srgb(0.50, 0.68, 0.85)));
+    model.text(60.5, 28.5, 2.0, "MTN", MenuTextAlign::Center, mc(Color::srgb(0.83, 0.64, 0.50)));
+    model.text(30.0, 48.0, 2.0, "VALLEY", MenuTextAlign::Center, mc(Color::srgb(0.82, 0.69, 0.48)));
+    for (idx, marker) in map_markers().iter().enumerate() {
+        let action = OotAction::MapMarker(idx);
+        model.control_with_icon(
+            MenuRect::new(marker.x, marker.y, 8.8, 8.8),
+            MenuControlKind::MapMarker,
+            marker.short,
+            Some(marker.name.to_string()),
+            Some("icons/oot/map_marker.png"),
+            demo.selected == action,
+            idx == 0,
+            active_face.then_some(action),
+        );
+    }
+    model.text(50.0, 73.0, 2.55, "Map placeholder: relative locations preserved; simplified layers prevent flicker", MenuTextAlign::Center, mc(Color::srgb(0.74, 0.90, 0.74)));
+}
+
+fn add_quest_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, active_face: bool) {
+    model.panel(MenuRect::new(13.5, 18.5, 73.0, 61.0), mc(Color::srgba(0.055, 0.035, 0.070, 1.0)), None);
+    model.text(26.0, 23.5, 2.5, "Songs", MenuTextAlign::Center, mc(Color::srgb(0.91, 0.83, 0.55)));
+    model.text(69.0, 21.5, 2.5, "Quest Status", MenuTextAlign::Center, mc(Color::srgb(0.91, 0.83, 0.55)));
+
+    // Left-side quest indicators similar to the OoT status page.
+    model.control_with_icon(
+        MenuRect::new(16.0, 29.0, 7.2, 7.2),
+        MenuControlKind::Decoration,
+        "Skull",
+        Some("100".to_string()),
+        Some("icons/oot/skull_token.png"),
+        false,
+        false,
+        None,
+    );
+    model.text(25.0, 34.0, 2.45, "100", MenuTextAlign::Left, mc(Color::srgb(0.92, 0.88, 0.74)));
+    model.control_with_icon(
+        MenuRect::new(16.0, 40.5, 7.2, 7.2),
+        MenuControlKind::Decoration,
+        "Agony",
+        None,
+        Some("icons/oot/stone_agony.png"),
+        false,
+        false,
+        None,
+    );
+    model.control_with_icon(
+        MenuRect::new(26.0, 40.5, 7.2, 7.2),
+        MenuControlKind::Decoration,
+        "Card",
+        None,
+        Some("icons/oot/gerudo_card.png"),
+        false,
+        false,
+        None,
+    );
+
+    // Song reminder icons are deliberately smaller than medallions, matching the reference's dense rows.
+    for (idx, song) in songs().iter().enumerate() {
+        let row = idx / 6;
+        let col = idx % 6;
+        let x = 18.0 + col as f32 * 5.7;
+        let y = 52.0 + row as f32 * 8.0;
+        let action = OotAction::Song(idx);
+        model.control_with_icon(
+            MenuRect::new(x, y, 5.4, 5.4),
+            MenuControlKind::Item,
+            "",
+            None,
+            Some(song.icon),
+            demo.selected == action,
+            true,
+            active_face.then_some(action),
+        );
+    }
+    for i in 0..8 {
+        let icon = if i % 3 == 0 { "icons/oot/song_button_a.png" } else { "icons/oot/song_button_c.png" };
+        model.control_with_icon(
+            MenuRect::new(18.0 + i as f32 * 4.2, 68.0, 3.8, 3.8),
+            MenuControlKind::Decoration,
+            "",
+            None,
+            Some(icon),
+            false,
+            false,
+            None,
+        );
+    }
+
+    // Compact medallion hex cluster and stones on the right side.
+    let med_pos = [
+        (73.0, 34.5), // Forest
+        (69.5, 25.0), // Fire
+        (60.5, 25.0), // Water
+        (56.5, 34.5), // Spirit
+        (61.0, 44.0), // Shadow
+        (70.0, 44.0), // Light
+    ];
+    for (idx, q) in quest_icons().iter().enumerate() {
+        let action = OotAction::QuestIcon(idx);
+        model.control_with_icon(
+            MenuRect::new(med_pos[idx].0, med_pos[idx].1, 8.0, 8.0),
+            MenuControlKind::Item,
+            "",
+            None,
+            Some(q.icon),
+            demo.selected == action,
+            true,
+            active_face.then_some(action),
+        );
+    }
+    let stone_pos = [(57.0, 57.0), (66.0, 57.0), (75.0, 57.0)];
+    let quest_offset = quest_icons().len();
+    for (local_idx, q) in stones().iter().enumerate() {
+        let idx = quest_offset + local_idx;
+        let action = OotAction::QuestIcon(idx);
+        model.control_with_icon(
+            MenuRect::new(stone_pos[local_idx].0, stone_pos[local_idx].1, 7.5, 7.5),
+            MenuControlKind::Item,
+            "",
+            None,
+            Some(q.icon),
+            demo.selected == action,
+            true,
+            active_face.then_some(action),
+        );
+    }
+
+    // Heart-piece reminder. Four small hearts read better than one huge 48px source quad here.
+    for i in 0..4 {
+        model.control_with_icon(
+            MenuRect::new(56.0 + i as f32 * 6.2, 70.0, 5.5, 5.5),
+            MenuControlKind::Decoration,
+            "",
+            None,
+            Some("icons/oot/heart_piece.png"),
+            false,
+            false,
+            None,
+        );
+    }
+    model.text(50.0, 78.7, 2.35, "Quest icons, songs, skulltulas, stones, and heart reminders", MenuTextAlign::Center, mc(Color::srgb(0.82, 0.72, 0.88)));
+}
+
+fn add_status_band(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo) {
+    model.panel(
+        MenuRect::new(15.0, 86.0, 70.0, 8.0),
+        mc(Color::srgba(0.02, 0.02, 0.03, 0.98)),
+        None,
+    );
+    model.text(
+        50.0,
+        90.0,
+        2.8,
+        &demo.status,
+        MenuTextAlign::Center,
+        mc(Color::srgb(0.90, 0.84, 0.64)),
+    );
+}
+
+fn render_page_model(
+    ui: &mut ChildSpawnerCommands,
+    materials: &mut Assets<StandardMaterial>,
+    asset_server: &AssetServer,
+    model: &MenuPageModel<OotPage, OotAction>,
+) {
+    spawn_panel(ui, materials, 0.0, 0.0, 100.0, 100.0, menu_color(model.background), None);
+    spawn_cube_edge_frame(ui, materials);
+    for node in &model.nodes {
+        match node {
+            MenuNode::Panel { rect, color, action } => spawn_panel(ui, materials, rect.x, rect.y, rect.w, rect.h, menu_color(*color), *action),
+            MenuNode::Text { x, y, size, text, align, color } => spawn_text(ui, materials, *x, *y, *size, text, menu_align(*align), menu_srgba(*color)),
+            MenuNode::Control { rect, kind, label, detail, icon, selected, important, action } => {
+                spawn_control(ui, materials, asset_server, *rect, *kind, label, detail.as_deref(), icon.as_deref(), *selected, *important, *action);
+            }
+        }
+    }
+}
+
+fn spawn_control(
+    ui: &mut ChildSpawnerCommands,
+    materials: &mut Assets<StandardMaterial>,
+    asset_server: &AssetServer,
+    rect: MenuRect,
+    kind: MenuControlKind,
+    label: &str,
+    detail: Option<&str>,
+    icon: Option<&str>,
+    selected: bool,
+    important: bool,
+    action: Option<OotAction>,
+) {
+    let color = control_color(kind, selected, important);
+    let material = materials.add(StandardMaterial {
+        base_color: color,
+        alpha_mode: AlphaMode::Opaque,
+        cull_mode: None,
+        unlit: true,
+        ..default()
+    });
+    let focus = MenuFocusKey {
+        row: (rect.y * 10.0).round() as i32,
+        col: (rect.x * 10.0).round() as i32,
+        order: (rect.y * 100.0 + rect.x).round() as i32,
+    };
+    let mut entity = ui.spawn((
+        Name::new(format!("{:?} control", kind)),
+        UiLayout::window()
+            .x(Rl(rect.x))
+            .y(Rl(rect.y))
+            .width(Rl(rect.w))
+            .height(Rh(rect.h))
+            .anchor(Anchor::TOP_LEFT)
+            .pack(),
+        UiDepth::Set(panel_depth(rect.w, rect.h, action.is_some())),
+        UiMeshPlane3d,
+        MeshMaterial3d(material),
+        AmbitionMenuControl { kind, action, focus },
+        MenuVisualState { focused: selected, selected, disabled: action.is_none(), ..Default::default() },
+    ));
+    if action.is_some() {
+        entity.insert((
+            OnHoverSetCursor::new(SystemCursorIcon::Pointer),
+            UiHover::new().forward_speed(18.0).backward_speed(10.0),
+            UiColor::new(vec![(UiBase::id(), color), (UiHover::id(), hover_panel_color())]),
+        ));
+    } else {
+        entity.insert((UiColor::from(color), Pickable::IGNORE));
+    }
+    entity.with_children(|children| {
+        let icon_is_primary = matches!(kind, MenuControlKind::Item | MenuControlKind::MapMarker | MenuControlKind::Decoration);
+        if let Some(icon_path) = icon {
+            spawn_icon(children, materials, asset_server, icon_path, icon_is_primary);
+        }
+        if icon_is_primary {
+            if !label.is_empty() {
+                spawn_control_text(children, materials, 50.0, 86.0, 14.0, label, TextAlign::Center, Srgba::rgb_u8(240, 232, 198));
+            }
+            if let Some(detail) = detail {
+                spawn_control_text(children, materials, 50.0, 108.0, 10.5, detail, TextAlign::Center, Srgba::rgb_u8(185, 196, 210));
+            }
+        } else {
+            let text_x = if icon.is_some() { 62.0 } else { 50.0 };
+            let size = if rect.h < 8.5 { 20.0 } else { 22.0 };
+            spawn_control_text(children, materials, text_x, 45.0, size, label, TextAlign::Center, Srgba::rgb_u8(240, 232, 198));
+            if let Some(detail) = detail {
+                spawn_control_text(children, materials, text_x, 76.0, size * 0.72, detail, TextAlign::Center, Srgba::rgb_u8(185, 196, 210));
+            }
+        }
+    });
+}
+
+fn spawn_icon(
+    ui: &mut ChildSpawnerCommands,
+    materials: &mut Assets<StandardMaterial>,
+    asset_server: &AssetServer,
+    icon: &str,
+    primary: bool,
+) {
+    // This function is called as a child of a control. Its layout is therefore in
+    // control-local percentages, not page percentages. The earlier demo used page
+    // coordinates here, which made icons tiny and off-center inside the buttons.
+    let icon_size = if primary { 86.0 } else { 58.0 };
+    let x = if primary { 50.0 } else { 23.0 };
+    let y = if primary { 47.0 } else { 50.0 };
+    let texture = asset_server.load(icon.to_string());
+    let material = materials.add(StandardMaterial {
+        base_color_texture: Some(texture),
+        base_color: Color::WHITE,
+        alpha_mode: AlphaMode::Blend,
+        cull_mode: None,
+        unlit: true,
+        ..default()
+    });
+    ui.spawn((
+        Name::new(format!("Icon {icon}")),
+        UiLayout::window()
+            .x(Rl(x))
+            .y(Rl(y))
+            .width(Rl(icon_size))
+            .height(Rh(icon_size))
+            .anchor(Anchor::CENTER)
+            .pack(),
+        UiDepth::Set(DEPTH_ICON),
+        UiMeshPlane3d,
+        MeshMaterial3d(material),
+        Pickable::IGNORE,
+    ));
+}
+
+fn spawn_control_text(ui: &mut ChildSpawnerCommands, materials: &mut Assets<StandardMaterial>, x: f32, y: f32, size: f32, text: &str, align: TextAlign, color: Srgba) {
+    let material = materials.add(StandardMaterial { base_color_texture: Some(TextAtlas::DEFAULT_IMAGE), alpha_mode: AlphaMode::Blend, cull_mode: None, unlit: true, ..default() });
+    ui.spawn((
+        Name::new("OoT control text"),
+        UiLayout::window().x(Rl(x)).y(Rl(y)).anchor(Anchor::CENTER).pack(),
+        UiDepth::Set(DEPTH_TEXT_TOP),
+        UiTextSize::from(Rh(size)),
+        Text3d::new(text),
+        Text3dStyling { size: 64.0, color, align, font: Arc::from(FONT_FAMILY), weight: Weight::BOLD, ..Default::default() },
+        MeshMaterial3d(material),
+        Mesh3d::default(),
+        Pickable::IGNORE,
+    ));
+}
+
+fn spawn_cube_edge_frame(ui: &mut ChildSpawnerCommands, materials: &mut Assets<StandardMaterial>) {
+    let edge = Color::srgba(0.76, 0.58, 0.24, 0.98);
+    spawn_panel_at_depth(ui, materials, 0.0, 0.0, 1.0, 100.0, edge, DEPTH_EDGE);
+    spawn_panel_at_depth(ui, materials, 99.0, 0.0, 1.0, 100.0, edge, DEPTH_EDGE);
+    spawn_panel_at_depth(ui, materials, 0.0, 0.0, 100.0, 0.8, edge, DEPTH_EDGE);
+    spawn_panel_at_depth(ui, materials, 0.0, 99.2, 100.0, 0.8, edge, DEPTH_EDGE);
+}
+
+fn spawn_panel(
+    ui: &mut ChildSpawnerCommands,
+    materials: &mut Assets<StandardMaterial>,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    color: Color,
+    action: Option<OotAction>,
+) {
+    let material = materials.add(StandardMaterial { base_color: color, alpha_mode: AlphaMode::Opaque, cull_mode: None, unlit: true, ..default() });
+    let mut entity = ui.spawn((
+        Name::new("OoT panel"),
+        UiLayout::window().x(Rl(x)).y(Rl(y)).width(Rl(w)).height(Rh(h)).anchor(Anchor::TOP_LEFT).pack(),
+        UiDepth::Set(panel_depth(w, h, action.is_some())),
+        UiMeshPlane3d,
+        MeshMaterial3d(material),
+    ));
+    if action.is_some() {
+        entity.insert((OnHoverSetCursor::new(SystemCursorIcon::Pointer), UiHover::new().forward_speed(18.0).backward_speed(10.0), UiColor::new(vec![(UiBase::id(), color), (UiHover::id(), hover_panel_color())])));
+    } else {
+        entity.insert((UiColor::from(color), Pickable::IGNORE));
+    }
+}
+
+fn spawn_panel_at_depth(ui: &mut ChildSpawnerCommands, materials: &mut Assets<StandardMaterial>, x: f32, y: f32, w: f32, h: f32, color: Color, depth: f32) {
+    let material = materials.add(StandardMaterial { base_color: color, alpha_mode: AlphaMode::Opaque, cull_mode: None, unlit: true, ..default() });
+    ui.spawn((
+        Name::new("OoT depth panel"),
+        UiLayout::window().x(Rl(x)).y(Rl(y)).width(Rl(w)).height(Rh(h)).anchor(Anchor::TOP_LEFT).pack(),
+        UiDepth::Set(depth),
+        UiMeshPlane3d,
+        MeshMaterial3d(material),
+        UiColor::from(color),
+        Pickable::IGNORE,
+    ));
+}
+
+fn spawn_text(ui: &mut ChildSpawnerCommands, materials: &mut Assets<StandardMaterial>, x: f32, y: f32, size: f32, text: &str, align: TextAlign, color: Srgba) {
+    let material = materials.add(StandardMaterial { base_color_texture: Some(TextAtlas::DEFAULT_IMAGE), alpha_mode: AlphaMode::Blend, cull_mode: None, unlit: true, ..default() });
+    ui.spawn((
+        Name::new("OoT text"),
+        UiLayout::window().x(Rl(x)).y(Rl(y)).anchor(Anchor::CENTER).pack(),
+        UiDepth::Set(DEPTH_TEXT_TOP),
+        UiTextSize::from(Rh(size)),
+        Text3d::new(text),
+        Text3dStyling { size: 64.0, color, align, font: Arc::from(FONT_FAMILY), weight: Weight::BOLD, ..Default::default() },
+        MeshMaterial3d(material),
+        Mesh3d::default(),
+        Pickable::IGNORE,
+    ));
+}
+
+fn control_color(kind: MenuControlKind, selected: bool, important: bool) -> Color {
+    match kind {
+        MenuControlKind::Tab if selected => Color::srgba(0.78, 0.55, 0.20, 0.98),
+        MenuControlKind::Tab => Color::srgba(0.10, 0.08, 0.12, 0.95),
+        _ => focus_color(selected, important),
+    }
+}
+
+fn focus_color(selected: bool, important: bool) -> Color {
+    match (selected, important) {
+        (true, true) => Color::srgba(0.82, 0.58, 0.20, 0.98),
+        (true, false) => Color::srgba(0.45, 0.48, 0.68, 0.96),
+        (false, true) => Color::srgba(0.18, 0.15, 0.09, 0.94),
+        (false, false) => Color::srgba(0.08, 0.08, 0.12, 0.92),
+    }
+}
+
+fn hover_panel_color() -> Color {
+    Color::srgba(0.88, 0.70, 0.28, 0.99)
+}
+
+fn panel_depth(w: f32, h: f32, actionable: bool) -> f32 {
+    if actionable {
+        return DEPTH_ACTION;
+    }
+    let area = w * h;
+    // Avoid z-fighting between nested non-action panels, especially on the map face.
+    if area > 8_000.0 {
+        DEPTH_BACKGROUND
+    } else if area > 3_000.0 {
+        DEPTH_LARGE_PANEL
+    } else if area > 1_200.0 {
+        DEPTH_LARGE_PANEL - 0.08
+    } else if area > 500.0 {
+        DEPTH_CARD
+    } else {
+        DEPTH_CARD - 0.05
+    }
+}
+
+fn mc(color: Color) -> MenuColor {
+    let srgba = color.to_srgba();
+    MenuColor::rgba(srgba.red, srgba.green, srgba.blue, srgba.alpha)
+}
+
+fn menu_color(color: MenuColor) -> Color {
+    Color::srgba(color.r, color.g, color.b, color.a)
+}
+
+fn menu_srgba(color: MenuColor) -> Srgba {
+    let r = (color.r.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let g = (color.g.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let b = (color.b.clamp(0.0, 1.0) * 255.0).round() as u8;
+    Srgba::rgb_u8(r, g, b)
+}
+
+fn menu_align(align: MenuTextAlign) -> TextAlign {
+    match align {
+        MenuTextAlign::Left => TextAlign::Left,
+        MenuTextAlign::Center => TextAlign::Center,
+        MenuTextAlign::Right => TextAlign::Right,
+    }
+}
+
+fn menu_toggle_input(keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&Gamepad>, mut shell: ResMut<MenuShell>) {
+    let keyboard = keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::KeyP);
+    let gamepad = gamepads.iter().any(|g| g.just_pressed(GamepadButton::Start));
+    if keyboard || gamepad {
+        shell.toggle();
+    }
+}
+
+fn keyboard_navigation(keys: Res<ButtonInput<KeyCode>>, shell: Res<MenuShell>, mut demo: ResMut<OotDemo>, mut menu: ResMut<MenuAnimation>) {
+    if !shell.is_interactive() {
+        return;
+    }
+    let before_page = demo.page;
+    if keys.just_pressed(KeyCode::KeyQ) || keys.just_pressed(KeyCode::PageUp) {
+        demo.previous_page();
+    }
+    if keys.just_pressed(KeyCode::KeyE) || keys.just_pressed(KeyCode::PageDown) {
+        demo.next_page();
+    }
+    if keys.just_pressed(KeyCode::ArrowLeft) || keys.just_pressed(KeyCode::KeyA) {
+        demo.move_spatial(-1, 0);
+    }
+    if keys.just_pressed(KeyCode::ArrowRight) || keys.just_pressed(KeyCode::KeyD) {
+        demo.move_spatial(1, 0);
+    }
+    if keys.just_pressed(KeyCode::ArrowUp) || keys.just_pressed(KeyCode::KeyW) {
+        demo.move_spatial(0, -1);
+    }
+    if keys.just_pressed(KeyCode::ArrowDown) || keys.just_pressed(KeyCode::KeyS) {
+        demo.move_spatial(0, 1);
+    }
+    if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) {
+        demo.activate_selected();
+    }
+    if demo.page != before_page {
+        menu.set_page(demo.page);
+    }
+}
+
+fn gamepad_navigation(gamepads: Query<&Gamepad>, shell: Res<MenuShell>, mut demo: ResMut<OotDemo>, mut menu: ResMut<MenuAnimation>) {
+    if !shell.is_interactive() {
+        return;
+    }
+    let before_page = demo.page;
+    for gamepad in &gamepads {
+        if gamepad.just_pressed(GamepadButton::LeftTrigger) || gamepad.just_pressed(GamepadButton::LeftTrigger2) {
+            // User-facing semantics: LB moves to the page on the left edge.
+            demo.previous_page();
+        }
+        if gamepad.just_pressed(GamepadButton::RightTrigger) || gamepad.just_pressed(GamepadButton::RightTrigger2) {
+            // User-facing semantics: RB moves to the page on the right edge.
+            demo.next_page();
+        }
+        if gamepad.just_pressed(GamepadButton::DPadLeft) {
+            demo.move_spatial(-1, 0);
+        }
+        if gamepad.just_pressed(GamepadButton::DPadRight) {
+            demo.move_spatial(1, 0);
+        }
+        if gamepad.just_pressed(GamepadButton::DPadUp) {
+            demo.move_spatial(0, -1);
+        }
+        if gamepad.just_pressed(GamepadButton::DPadDown) {
+            demo.move_spatial(0, 1);
+        }
+        if gamepad.just_pressed(GamepadButton::South) {
+            demo.activate_selected();
+        }
+        if gamepad.just_pressed(GamepadButton::East) {
+            demo.status = "Back/cancel.".to_string();
+            demo.bump();
+        }
+    }
+    if demo.page != before_page {
+        menu.set_page(demo.page);
+    }
+}
+
+fn mouse_navigation(mut wheel: MessageReader<MouseWheel>, shell: Res<MenuShell>, mut demo: ResMut<OotDemo>, mut menu: ResMut<MenuAnimation>) {
+    if !shell.is_interactive() {
+        return;
+    }
+    let before_page = demo.page;
+    for ev in wheel.read() {
+        if ev.y > 0.0 {
+            demo.previous_page();
+        } else if ev.y < 0.0 {
+            demo.next_page();
+        }
+    }
+    if demo.page != before_page {
+        menu.set_page(demo.page);
+    }
+}
+
+fn animate_menu_ring(
+    time: Res<Time>,
+    config: Res<MenuShellConfig>,
+    mut menu: ResMut<MenuAnimation>,
+    mut shell: ResMut<MenuShell>,
+    mut effects: ResMut<MenuShellEffects>,
+    mut last_phase: Local<Option<MenuShellPhase>>,
+    mut ring_query: Query<(&mut Transform, &mut Visibility), (With<MenuRing>, Without<LunexFaceRoot>)>,
+    mut face_query: Query<(&PageFace, &mut Transform), (With<LunexFaceRoot>, Without<MenuRing>)>,
+) {
+    let Ok((mut transform, mut visibility)) = ring_query.single_mut() else { return; };
+    let delta = shortest_angle_delta(menu.current_angle, menu.target_angle);
+    let rotate_step = 1.0 - (-config.page_rotate_speed * time.delta_secs()).exp();
+    menu.current_angle += delta * rotate_step;
+    if delta.abs() < 0.001 {
+        menu.current_angle = menu.target_angle;
+    }
+    let target = if shell.target_open { 1.0 } else { 0.0 };
+    let open_step = 1.0 - (-config.open_close_speed * time.delta_secs()).exp();
+    shell.openness += (target - shell.openness) * open_step;
+    if (shell.openness - target).abs() < 0.002 {
+        shell.openness = target;
+    }
+    *visibility = if shell.is_visible() { Visibility::Visible } else { Visibility::Hidden };
+    let phase = shell.phase();
+    if *last_phase != Some(phase) {
+        effects.push(match phase {
+            MenuShellPhase::Opening => MenuShellEffect::Opening,
+            MenuShellPhase::Open => MenuShellEffect::Opened,
+            MenuShellPhase::Closing => MenuShellEffect::Closing,
+            MenuShellPhase::Closed => MenuShellEffect::Closed,
+        });
+        *last_phase = Some(phase);
+    }
+    let open = smoothstep(shell.openness.clamp(0.0, 1.0));
+    transform.rotation = Quat::from_rotation_y(menu.current_angle);
+    match config.open_close_style {
+        MenuOpenCloseStyle::SmoothScale => {
+            let scale = MIN_OPEN_SCALE + (1.0 - MIN_OPEN_SCALE) * open;
+            transform.scale = Vec3::splat(scale);
+            transform.translation = Vec3::new(0.0, -0.05 * (1.0 - open), -0.42 * (1.0 - open));
+            for (face, mut t) in &mut face_query {
+                reset_face_transform(face.0, &mut t);
+            }
+        }
+        MenuOpenCloseStyle::OotPageFold => {
+            transform.scale = Vec3::ONE;
+            transform.translation = Vec3::new(0.0, -0.10 * (1.0 - open), 0.0);
+            let fold = OOT_PAGE_FOLD_RADIANS * (1.0 - open);
+            for (face, mut t) in &mut face_query {
+                apply_oot_open_fold(face.0, fold, &mut t);
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct HitRect { x: f32, y: f32, w: f32, h: f32 }
+impl HitRect {
+    fn center(self) -> Vec2 { Vec2::new(self.x + self.w * 0.5, self.y + self.h * 0.5) }
+}
+#[derive(Clone, Copy, Debug)]
+struct HitTarget { rect: HitRect, action: OotAction }
+
+fn active_hit_targets(demo: &OotDemo) -> Vec<HitTarget> {
+    let model = build_page_model(demo.page, demo, true);
+    model.nodes.iter().filter_map(|node| match node {
+        MenuNode::Panel { rect, action: Some(action), .. } => Some(HitTarget { rect: HitRect { x: rect.x, y: rect.y, w: rect.w, h: rect.h }, action: *action }),
+        MenuNode::Control { rect, action: Some(action), .. } => Some(HitTarget { rect: HitRect { x: rect.x, y: rect.y, w: rect.w, h: rect.h }, action: *action }),
+        _ => None,
+    }).collect()
+}
+
+fn pointer_hit_test(
+    windows: Query<&Window, With<PrimaryWindow>>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    mut touches: MessageReader<TouchInput>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    face_query: Query<(&PageFace, &GlobalTransform)>,
+    shell: Res<MenuShell>,
+    mut demo: ResMut<OotDemo>,
+    mut menu: ResMut<MenuAnimation>,
+    mut last_mouse_hover: Local<Option<OotAction>>,
+) {
+    if !shell.is_interactive() { return; }
+    let Ok(window) = windows.single() else { return; };
+    let Ok((camera, camera_transform)) = camera_query.single() else { return; };
+    let Some((_, face_transform)) = face_query.iter().find(|(face, _)| face.0 == demo.page) else { return; };
+    let before_page = demo.page;
+
+    if let Some(pos) = window.cursor_position() {
+        let hovered = hit_test_action(pos, &demo, camera, camera_transform, face_transform);
+        if hovered != *last_mouse_hover {
+            if let Some(action) = hovered { demo.hover(action); }
+            *last_mouse_hover = hovered;
+        }
+        if buttons.just_released(MouseButton::Left) {
+            if let Some(action) = hovered { demo.click(action); }
+        }
+        if buttons.just_released(MouseButton::Right) {
+            demo.status = "Cancel/back.".to_string();
+            demo.bump();
+        }
+    }
+    for touch in touches.read() {
+        if touch.phase == TouchPhase::Ended {
+            if let Some(action) = hit_test_action(touch.position, &demo, camera, camera_transform, face_transform) {
+                demo.click(action);
+            }
+        }
+    }
+    if demo.page != before_page {
+        menu.set_page(demo.page);
+    }
+}
+
+fn hit_test_action(cursor: Vec2, demo: &OotDemo, camera: &Camera, camera_transform: &GlobalTransform, face_transform: &GlobalTransform) -> Option<OotAction> {
+    let mut best: Option<(f32, OotAction)> = None;
+    for target in active_hit_targets(demo) {
+        let mut min = Vec2::splat(f32::INFINITY);
+        let mut max = Vec2::splat(f32::NEG_INFINITY);
+        let mut ok = true;
+        for local in rect_corners(target.rect) {
+            let world = face_transform.transform_point(local);
+            let Ok(screen) = camera.world_to_viewport(camera_transform, world) else { ok = false; break; };
+            min = min.min(screen);
+            max = max.max(screen);
+        }
+        if !ok { continue; }
+        if cursor.x >= min.x && cursor.x <= max.x && cursor.y >= min.y && cursor.y <= max.y {
+            let area = (max.x - min.x).abs() * (max.y - min.y).abs();
+            if best.map(|(best_area, _)| area < best_area).unwrap_or(true) {
+                best = Some((area, target.action));
+            }
+        }
+    }
+    best.map(|(_, action)| action)
+}
+
+fn rect_corners(rect: HitRect) -> [Vec3; 4] {
+    let x0 = rect.x;
+    let x1 = rect.x + rect.w;
+    let y0 = rect.y;
+    let y1 = rect.y + rect.h;
+    [page_pct_to_local(x0, y0), page_pct_to_local(x1, y0), page_pct_to_local(x1, y1), page_pct_to_local(x0, y1)]
+}
+
+fn page_pct_to_local(x: f32, y: f32) -> Vec3 {
+    Vec3::new((x / 100.0 - 0.5) * PAGE_W, (0.5 - y / 100.0) * PAGE_H, 0.0)
+}
+
+fn smoothstep(t: f32) -> f32 { t * t * (3.0 - 2.0 * t) }
+fn shortest_angle_delta(current: f32, target: f32) -> f32 {
+    let two_pi = PI * 2.0;
+    (target - current + PI).rem_euclid(two_pi) - PI
+}
+
+#[derive(Clone, Copy)]
+struct OotItem { name: &'static str, short: &'static str, icon: &'static str, detail: Option<&'static str>, important: bool }
+fn oot_items() -> [OotItem; 24] {
+    [
+        OotItem { name: "Deku Stick", short: "Stick", icon: "icons/oot/deku_stick.png", detail: Some("x99"), important: false },
+        OotItem { name: "Deku Nut", short: "Nut", icon: "icons/oot/deku_nut.png", detail: Some("x99"), important: false },
+        OotItem { name: "Bomb", short: "Bomb", icon: "icons/oot/bomb.png", detail: Some("x99"), important: false },
+        OotItem { name: "Fairy Bow", short: "Bow", icon: "icons/oot/bow.png", detail: Some("x50"), important: true },
+        OotItem { name: "Fire Arrow", short: "Fire", icon: "icons/oot/fire_arrow.png", detail: None, important: true },
+        OotItem { name: "Ice Arrow", short: "Ice", icon: "icons/oot/ice_arrow.png", detail: None, important: true },
+        OotItem { name: "Light Arrow", short: "Light", icon: "icons/oot/light_arrow.png", detail: None, important: true },
+        OotItem { name: "Ocarina of Time", short: "Ocarina", icon: "icons/oot/ocarina.png", detail: None, important: true },
+        OotItem { name: "Bombchu", short: "Bombchu", icon: "icons/oot/bombchu.png", detail: Some("x50"), important: false },
+        OotItem { name: "Hookshot", short: "Hook", icon: "icons/oot/hookshot.png", detail: None, important: true },
+        OotItem { name: "Longshot", short: "Long", icon: "icons/oot/longshot.png", detail: None, important: true },
+        OotItem { name: "Boomerang", short: "Boom", icon: "icons/oot/boomerang.png", detail: None, important: true },
+        OotItem { name: "Lens of Truth", short: "Lens", icon: "icons/oot/lens.png", detail: None, important: true },
+        OotItem { name: "Magic Bean", short: "Bean", icon: "icons/oot/beans.png", detail: Some("x10"), important: false },
+        OotItem { name: "Megaton Hammer", short: "Hammer", icon: "icons/oot/hammer.png", detail: None, important: true },
+        OotItem { name: "Bottle", short: "Bottle", icon: "icons/oot/bottle.png", detail: Some("Fairy"), important: true },
+        OotItem { name: "Pocket Egg", short: "Egg", icon: "icons/oot/egg.png", detail: None, important: false },
+        OotItem { name: "Letter", short: "Letter", icon: "icons/oot/letter.png", detail: None, important: false },
+        OotItem { name: "Mask", short: "Mask", icon: "icons/oot/mask.png", detail: None, important: false },
+        OotItem { name: "Claim Check", short: "Check", icon: "icons/oot/claim_check.png", detail: None, important: false },
+        OotItem { name: "Bottle", short: "Blue", icon: "icons/oot/bottle.png", detail: Some("Fire"), important: true },
+        OotItem { name: "Bottle", short: "Milk", icon: "icons/oot/bottle.png", detail: Some("Milk"), important: true },
+        OotItem { name: "Bottle", short: "Poe", icon: "icons/oot/bottle.png", detail: Some("Poe"), important: true },
+        OotItem { name: "Empty Bottle", short: "Empty", icon: "icons/oot/empty_bottle.png", detail: None, important: false },
+    ]
+}
+
+#[derive(Clone, Copy)]
+struct EquipChoice { name: &'static str, short: &'static str, icon: &'static str }
+#[derive(Clone, Copy)]
+struct EquipSlot { name: &'static str, choices: [EquipChoice; 3] }
+fn equip_slots() -> [EquipSlot; 4] {
+    [
+        EquipSlot { name: "Sword", choices: [
+            EquipChoice { name: "Kokiri Sword", short: "Kok", icon: "icons/oot/kokiri_sword.png" },
+            EquipChoice { name: "Master Sword", short: "Mas", icon: "icons/oot/master_sword.png" },
+            EquipChoice { name: "Biggoron Sword", short: "Big", icon: "icons/oot/biggoron_sword.png" },
+        ]},
+        EquipSlot { name: "Shield", choices: [
+            EquipChoice { name: "Deku Shield", short: "Deku", icon: "icons/oot/deku_shield.png" },
+            EquipChoice { name: "Hylian Shield", short: "Hyl", icon: "icons/oot/hylian_shield.png" },
+            EquipChoice { name: "Mirror Shield", short: "Mir", icon: "icons/oot/mirror_shield.png" },
+        ]},
+        EquipSlot { name: "Tunic", choices: [
+            EquipChoice { name: "Kokiri Tunic", short: "Kok", icon: "icons/oot/kokiri_tunic.png" },
+            EquipChoice { name: "Goron Tunic", short: "Gor", icon: "icons/oot/goron_tunic.png" },
+            EquipChoice { name: "Zora Tunic", short: "Zora", icon: "icons/oot/zora_tunic.png" },
+        ]},
+        EquipSlot { name: "Boots", choices: [
+            EquipChoice { name: "Kokiri Boots", short: "Kok", icon: "icons/oot/kokiri_boots.png" },
+            EquipChoice { name: "Iron Boots", short: "Iron", icon: "icons/oot/iron_boots.png" },
+            EquipChoice { name: "Hover Boots", short: "Hover", icon: "icons/oot/hover_boots.png" },
+        ]},
+    ]
+}
+
+#[derive(Clone, Copy)]
+struct MapMarker { name: &'static str, short: &'static str, x: f32, y: f32 }
+fn map_markers() -> [MapMarker; 8] {
+    [
+        MapMarker { name: "Kokiri Forest", short: "K", x: 63.0, y: 55.0 },
+        MapMarker { name: "Lost Woods", short: "W", x: 57.0, y: 46.0 },
+        MapMarker { name: "Market", short: "M", x: 50.0, y: 35.0 },
+        MapMarker { name: "Death Mountain", short: "D", x: 59.0, y: 28.0 },
+        MapMarker { name: "Zora Domain", short: "Z", x: 67.0, y: 42.0 },
+        MapMarker { name: "Lake Hylia", short: "L", x: 40.0, y: 61.0 },
+        MapMarker { name: "Gerudo Valley", short: "G", x: 28.0, y: 48.0 },
+        MapMarker { name: "Lon Lon Ranch", short: "R", x: 47.0, y: 50.0 },
+    ]
+}
+
+
+const MEDALLION_POS: [(f32, f32); 6] = [
+    (74.0, 38.0),  // Forest
+    (74.0, 6.0),   // Fire
+    (46.0, -12.0), // Water
+    (18.0, 6.0),   // Spirit
+    (18.0, 38.0),  // Shadow
+    (46.0, 56.0),  // Light
+];
+const STONE_POS: [(f32, f32); 3] = [
+    (20.0, -46.0),
+    (46.0, -46.0),
+    (72.0, -46.0),
+];
+
+fn oot_quest_quad_to_rect(src_x: f32, src_y: f32, src_size: f32) -> (f32, f32, f32) {
+    // OoT quest vertices use a 240 x 160-ish page centered at the origin.
+    let x = (src_x + 120.0) / 240.0 * 100.0;
+    let y = (80.0 - src_y) / 160.0 * 100.0;
+    let size = src_size / 240.0 * 100.0;
+    (x, y, size)
+}
+
+#[derive(Clone, Copy)]
+struct QuestIcon { name: &'static str, short: &'static str, icon: &'static str }
+fn quest_icons() -> [QuestIcon; 6] {
+    [
+        QuestIcon { name: "Forest Medallion", short: "Fo", icon: "icons/oot/med_forest.png" },
+        QuestIcon { name: "Fire Medallion", short: "Fi", icon: "icons/oot/med_fire.png" },
+        QuestIcon { name: "Water Medallion", short: "Wa", icon: "icons/oot/med_water.png" },
+        QuestIcon { name: "Spirit Medallion", short: "Sp", icon: "icons/oot/med_spirit.png" },
+        QuestIcon { name: "Shadow Medallion", short: "Sh", icon: "icons/oot/med_shadow.png" },
+        QuestIcon { name: "Light Medallion", short: "Li", icon: "icons/oot/med_light.png" },
+    ]
+}
+fn stones() -> [QuestIcon; 3] {
+    [
+        QuestIcon { name: "Kokiri Emerald", short: "Em", icon: "icons/oot/stone_emerald.png" },
+        QuestIcon { name: "Goron Ruby", short: "Ru", icon: "icons/oot/stone_ruby.png" },
+        QuestIcon { name: "Zora Sapphire", short: "Sa", icon: "icons/oot/stone_sapphire.png" },
+    ]
+}
+
+
+fn all_quest_icons() -> Vec<QuestIcon> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&quest_icons());
+    out.extend_from_slice(&stones());
+    out
+}
+
+#[derive(Clone, Copy)]
+struct Song { name: &'static str, short: &'static str, icon: &'static str, pattern: &'static str }
+fn songs() -> [Song; 12] {
+    [
+        Song { name: "Minuet of Forest", short: "Min", icon: "icons/oot/song_minuet.png", pattern: "A ↑ ← → ← →" },
+        Song { name: "Bolero of Fire", short: "Bol", icon: "icons/oot/song_bolero.png", pattern: "↓ A ↓ A → ↓ → ↓" },
+        Song { name: "Serenade of Water", short: "Ser", icon: "icons/oot/song_serenade.png", pattern: "A ↓ → → ←" },
+        Song { name: "Requiem of Spirit", short: "Req", icon: "icons/oot/song_requiem.png", pattern: "A ↓ A → ↓ A" },
+        Song { name: "Nocturne of Shadow", short: "Noc", icon: "icons/oot/song_nocturne.png", pattern: "← → → A ← → ↓" },
+        Song { name: "Prelude of Light", short: "Pre", icon: "icons/oot/song_prelude.png", pattern: "↑ → ↑ → ← ↑" },
+        Song { name: "Zelda's Lullaby", short: "Zel", icon: "icons/oot/song_lullaby.png", pattern: "← ↑ → ← ↑ →" },
+        Song { name: "Epona's Song", short: "Epo", icon: "icons/oot/song_epona.png", pattern: "↑ ← → ↑ ← →" },
+        Song { name: "Saria's Song", short: "Sar", icon: "icons/oot/song_saria.png", pattern: "↓ → ← ↓ → ←" },
+        Song { name: "Sun's Song", short: "Sun", icon: "icons/oot/song_sun.png", pattern: "→ ↓ ↑ → ↓ ↑" },
+        Song { name: "Song of Time", short: "Tim", icon: "icons/oot/song_time.png", pattern: "→ A ↓ → A ↓" },
+        Song { name: "Song of Storms", short: "Sto", icon: "icons/oot/song_storms.png", pattern: "A ↓ ↑ A ↓ ↑" },
+    ]
+}

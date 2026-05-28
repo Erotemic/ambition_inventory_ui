@@ -52,22 +52,30 @@ pub enum MenuTextAlign {
 /// Broad semantic class for controls.
 ///
 /// A renderer may style these differently, and a navigation policy may use this
-/// to decide whether a control participates in focus, hover, or scroll.
+/// to decide whether a control participates in focus, hover, or scroll. Renderers
+/// may also use this to choose default icon size/placement for controls that set
+/// an icon asset path.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuControlKind {
     Tab,
     Slot,
     Item,
     Action,
+    PopupAction,
     OptionToggle,
     OptionChoice,
     MapMarker,
     Scrollbar,
+    PopupPanel,
     Decoration,
 }
 
 /// A single page node. `Action` is intentionally generic so games can use their
 /// own enum instead of stringly typed callbacks.
+///
+/// `Control::icon` is an optional asset path, relative to Bevy's asset root.
+/// This keeps content data-driven while allowing renderers to show sprite icons
+/// beside buttons, tabs, item cards, or option rows.
 #[derive(Clone, Debug)]
 pub enum MenuNode<Action> {
     Panel {
@@ -88,6 +96,7 @@ pub enum MenuNode<Action> {
         kind: MenuControlKind,
         label: String,
         detail: Option<String>,
+        icon: Option<String>,
         selected: bool,
         important: bool,
         action: Option<Action>,
@@ -146,11 +155,26 @@ impl<PageId, Action> MenuPageModel<PageId, Action> {
         important: bool,
         action: Option<Action>,
     ) {
+        self.control_with_icon(rect, kind, label, detail, None::<String>, selected, important, action);
+    }
+
+    pub fn control_with_icon(
+        &mut self,
+        rect: MenuRect,
+        kind: MenuControlKind,
+        label: impl Into<String>,
+        detail: Option<String>,
+        icon: Option<impl Into<String>>,
+        selected: bool,
+        important: bool,
+        action: Option<Action>,
+    ) {
         self.nodes.push(MenuNode::Control {
             rect,
             kind,
             label: label.into(),
             detail,
+            icon: icon.map(Into::into),
             selected,
             important,
             action,
@@ -258,6 +282,60 @@ pub enum MenuOpenCloseStyle {
     OotPageFold,
 }
 
+
+/// Reusable selection rendering hint.
+///
+/// The default package renderer may interpret this as a fill, outline, or
+/// corner-bracket effect. The OoT demo uses `CornerBrackets` to separate
+/// keyboard/gamepad selection from transient hover color.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MenuSelectionEffect {
+    Fill,
+    Outline,
+    CornerBrackets { corner_len_pct: f32, thickness_pct: f32 },
+}
+
+impl Default for MenuSelectionEffect {
+    fn default() -> Self {
+        Self::CornerBrackets { corner_len_pct: 24.0, thickness_pct: 4.0 }
+    }
+}
+
+/// Cube/page geometry shared by renderers that want an OoT-like four-page room.
+///
+/// `page_width = 2 * page_radius` is the important source-derived relationship:
+/// OoT's page background width is effectively twice the page depth, which makes
+/// adjacent faces meet at visible cube edges instead of floating apart.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MenuCubeGeometry {
+    pub page_radius: f32,
+    pub page_width: f32,
+    pub page_height: f32,
+    pub camera_distance: f32,
+    pub camera_y: f32,
+    pub look_y: f32,
+}
+
+impl MenuCubeGeometry {
+    pub const fn oot_like(page_radius: f32) -> Self {
+        let page_width = page_radius * 2.0;
+        Self {
+            page_radius,
+            page_width,
+            page_height: page_width * (160.0 / 240.0),
+            camera_distance: page_radius * 0.80,
+            camera_y: 0.0,
+            look_y: 0.0,
+        }
+    }
+}
+
+impl Default for MenuCubeGeometry {
+    fn default() -> Self {
+        Self::oot_like(2.85)
+    }
+}
+
 /// Configuration resource for a reusable menu shell.
 ///
 /// This intentionally avoids audio/music decisions. Instead, use
@@ -270,6 +348,8 @@ pub struct MenuShellConfig {
     pub gestures: MenuGesturePolicy,
     pub page_rotate_speed: f32,
     pub open_close_speed: f32,
+    pub selection_effect: MenuSelectionEffect,
+    pub cube_geometry: MenuCubeGeometry,
 }
 
 impl Default for MenuShellConfig {
@@ -280,6 +360,8 @@ impl Default for MenuShellConfig {
             gestures: MenuGesturePolicy::default(),
             page_rotate_speed: 5.2,
             open_close_speed: 8.0,
+            selection_effect: MenuSelectionEffect::default(),
+            cube_geometry: MenuCubeGeometry::default(),
         }
     }
 }

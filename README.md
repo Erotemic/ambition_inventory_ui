@@ -283,3 +283,122 @@ flags for page swipes, drag-off cancel, and drag-scroll panes. The demo enables
 all three by default because this prototype is validating mobile-friendly menu
 feel, but a host game can disable any of them if those gestures conflict with a
 specific platform or control scheme.
+
+## Popup action / scrollbar gesture revision
+
+This revision changes Gear item actions from a permanently visible third column
+into a contextual popup menu. Selecting a compatible gear item opens a small
+menu next to that item with Equip/Unequip, Compare, and Inspect actions. This is
+closer to the intended reusable component shape: item cards emit a semantic
+`SelectItem` action, and the shell can present a contextual action menu without
+hard-coding a full page column for every interaction.
+
+The Status scroll indicator is now actionable. Clicking a scroll segment jumps
+to that scroll position, and dragging the scrollbar uses thumb semantics: drag
+down to move deeper in the list, drag up to move toward the top. Dragging the
+content area keeps touch-content semantics: drag the content up to reveal lower
+rows, drag it down to reveal earlier rows.
+
+## Sprite icon / feature coverage revision
+
+This revision adds a small generated sprite icon set under `assets/icons` and
+uses those icons through the data-driven page model rather than hard-coding them
+inside the renderer.
+
+- `MenuNode::Control` now has an optional `icon` asset path.
+- `MenuPageModel::control_with_icon(...)` is the convenience builder for icon
+  buttons, item cards, tabs, map markers, popup actions, and option rows.
+- The Lunex renderer draws each icon as a textured `UiMeshPlane3d` layered above the
+  control panel and below text.
+- The demo now exercises icons across several control kinds:
+  - top tabs,
+  - equipment slots,
+  - gear item cards,
+  - contextual popup actions,
+  - pack consumables/key/trade items,
+  - map markers,
+  - Status/settings rows.
+
+The intent is not that these placeholder icons are final art. They demonstrate
+that the package can represent icon-bearing controls in the same declarative
+model used for text, hit targets, focus, hover, touch, and gamepad navigation.
+A real Ambition integration should build these icon paths from its item/ability
+metadata and theme assets.
+
+## Second demo: OoT functional pause recreation
+
+This overlay adds a second binary that is specifically meant to stress-test the
+crate's ability to provide an OoT-like pause-menu feel while still using the
+same data-driven page model and Lunex worldspace renderer.
+
+Run it with:
+
+```bash
+cargo run -p oot_pause_demo
+```
+
+The demo assumes a complete inventory and recreates the four functional pause
+faces at a practical level:
+
+- **Select Item**: a complete 6 x 4 item grid, matching the OoT source constants
+  `ITEM_GRID_COLS = 6` and `ITEM_GRID_ROWS = 4`.
+- **Equipment**: four gear rows with three choices per slot, with immediate
+  equip assignment.
+- **Map**: a placeholder Hyrule-style map with selectable markers.
+- **Quest Status**: medallions, spiritual stones, and twelve song reminder
+  icons with button-pattern text.
+
+The page-room geometry follows the same source-derived constraints used by the
+main demo:
+
+- four pause pages form a tight cube/room whose faces meet at visible edges,
+- edge buttons live on the left/right borders of the active face,
+- page switching is on `Q/E`, mouse wheel, and gamepad shoulders/triggers,
+- arrow keys and D-pad navigate controls within the active page,
+- `Enter` / Space / gamepad South activates the selected control,
+- `Escape` / `P` / gamepad Start opens or closes the menu shell.
+
+This demo intentionally does not try to copy Nintendo art assets. The icon set
+under `assets/icons/oot/` is generated placeholder sprite art. The point is to
+verify layout, interaction, page ordering, cube-edge placement, open/close fold,
+and edge-button behavior using a reusable data-driven Lunex menu renderer.
+
+### OoT demo polish pass
+
+This revision fixes issues found in the first `oot_pause_demo` pass:
+
+- Quest/status selection now uses a combined medallion + spiritual stone lookup, fixing an out-of-bounds panic when activating stones.
+- Item, map, equipment, and quest icons are larger and centered in their cells so the sprite layer is the main visual read rather than a tiny decoration.
+- The map keeps the surprisingly good relative marker placement from the previous pass, but nested panels now use separated depth bands to avoid flicker/z-fighting.
+- Equipment choices are split into left/right groups around the character preview instead of overlapping it.
+- Quest Status now follows the OoT source's `sQuestQuadsX/Y/Size` spatial idea more closely: medallions form an upper-right hex cluster, songs occupy two left-side rows, and spiritual stones sit along the lower-right.
+
+## Latest OoT demo polish notes
+
+The `oot_pause_demo` now treats the screenshot/source comparison as a functional target:
+
+- the default camera is pulled back so the top edge and adjacent cube-face corners are visible while idle;
+- LB/RB semantics are matched to the inside-cube mental model again;
+- item icons are drawn in control-local coordinates, so they fill and center in their buttons instead of rendering as tiny page-space children;
+- the Equipment page is closer to the source layout: upgrade column, player preview, then the 3-column equipment choices;
+- the Map page keeps its relative marker placement but removes most overlapping decorative planes to reduce angled-face flicker;
+- Quest Status is denser and includes medallions, stones, songs, song-note reminders, skulltula token count, Stone of Agony / Gerudo Card indicators, and heart-piece reminders.
+
+
+## Workspace demos
+
+The reusable package is the root crate, `ambition_inventory_ui`. The OoT functional recreation is now its own workspace crate so the demo-specific source-like layout does not get conflated with the reusable Lunex menu module.
+
+Run the generic Ambition-style demo:
+
+```bash
+cargo run -p ambition_inventory_ui
+```
+
+Run the OoT-style functional recreation:
+
+```bash
+cargo run -p oot_pause_demo
+```
+
+The OoT demo composes reusable concepts from the core crate: data-driven page models, configurable shell open/close style, tight cube geometry, and the white corner-bracket selection effect.
