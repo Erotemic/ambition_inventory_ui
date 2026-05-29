@@ -409,31 +409,50 @@ def draw_song_button(size: int, label: str, color: Color) -> Image.Image:
 
 def draw_hud_button(size: int, label: str, fill: Color, *, wide: bool = False) -> Image.Image:
     img, draw = icon_canvas(size)
-    # Solid OoT-inspired HUD buttons with the label baked directly onto the
-    # button. Avoid inner transparent cutouts / holes; assigned item icons may
-    # still be layered over C buttons in the demo.
+    # Solid OoT-inspired HUD buttons. These are icon glyphs, not extra runtime
+    # text labels; the demo can draw them without adding separate text nodes.
     if wide:
         box = (5, 15, 59, 49)
         inner = (9, 19, 55, 45)
         shadow = (8, 34, 58, 52)
         radius = 10
-        text_px = max(14, size * 4 // 6)
-        y = size * 4 * 0.50
     else:
         box = (6, 6, 58, 58)
         inner = (11, 11, 53, 53)
         shadow = (10, 38, 58, 60)
         radius = 24
-        text_px = max(22, size * 4 // 3)
-        y = size * 4 * 0.49
     draw.rounded_rectangle(xy(shadow, size), radius=stroke_width(size, radius), fill=(0, 0, 0, 115))
     draw.rounded_rectangle(xy(box, size), radius=stroke_width(size, radius), fill=fill, outline=rgba("#fff8ce"), width=stroke_width(size, 2.0))
-    # A small solid highlight keeps the button glossy but not hollow.
     r, g, b, a = fill
     highlight = (min(255, r + 42), min(255, g + 42), min(255, b + 42), a)
     draw.rounded_rectangle(xy(inner, size), radius=stroke_width(size, radius * 0.72), fill=highlight)
     draw.rounded_rectangle(xy((inner[0] + 1.5, inner[1] + 2.0, inner[2] - 1.5, inner[3] - 2.0), size), radius=stroke_width(size, radius * 0.62), fill=fill)
-    centered_text(draw, (size * 4 * 0.5, y), label, text_px, WHITE, stroke=BLACK, bold=True)
+    if label == "START":
+        # Menu/start glyph: three short bars rather than a literal word.
+        for yy, ww in [(25, 30), (32, 38), (39, 24)]:
+            rect(draw, size, (32 - ww / 2, yy - 1.4, 32 + ww / 2, yy + 1.4), WHITE, outline=BLACK, width=0.3, radius=1.4)
+    elif label == "A":
+        # Confirm glyph.
+        line(draw, size, [(20, 34), (29, 43), (46, 22)], WHITE, 5)
+        line(draw, size, [(20, 34), (29, 43), (46, 22)], rgba("#1b2440"), 1.4)
+    elif label == "B":
+        # Back/cancel glyph.
+        line(draw, size, [(43, 22), (25, 22), (19, 31), (25, 40), (43, 40)], WHITE, 5)
+        polygon(draw, size, [(19, 31), (29, 21), (29, 41)], WHITE, outline=BLACK, width=0.7)
+    return finish(img, size)
+
+
+def draw_c_hud_button(size: int, direction: str) -> Image.Image:
+    img, draw = icon_canvas(size)
+    draw.ellipse(xy((7, 7, 57, 57), size), fill=YELLOW, outline=rgba("#fff8ce"), width=stroke_width(size, 2.0))
+    draw.ellipse(xy((12, 12, 52, 52), size), fill=rgba("#f2c327"), outline=rgba("#885e09"), width=stroke_width(size, 1.0))
+    if direction == "left":
+        points = [(21, 32), (36, 18), (36, 27), (47, 27), (47, 37), (36, 37), (36, 46)]
+    elif direction == "right":
+        points = [(43, 32), (28, 18), (28, 27), (17, 27), (17, 37), (28, 37), (28, 46)]
+    else:
+        points = [(32, 45), (18, 30), (27, 30), (27, 19), (37, 19), (37, 30), (46, 30)]
+    polygon(draw, size, points, WHITE, outline=BLACK, width=1.0)
     return finish(img, size)
 
 def build_icons(size: int) -> Dict[str, Image.Image]:
@@ -498,7 +517,9 @@ def build_icons(size: int) -> Dict[str, Image.Image]:
         "hud_start.png": draw_hud_button(size, "START", RED, wide=True),
         "hud_button_a.png": draw_hud_button(size, "A", BLUE),
         "hud_button_b.png": draw_hud_button(size, "B", GREEN),
-        "hud_button_c.png": draw_hud_button(size, "C", YELLOW),
+        "hud_button_c_left.png": draw_c_hud_button(size, "left"),
+        "hud_button_c_down.png": draw_c_hud_button(size, "down"),
+        "hud_button_c_right.png": draw_c_hud_button(size, "right"),
     }
     song_specs = {
         "song_minuet.png": (GREEN, "M"),

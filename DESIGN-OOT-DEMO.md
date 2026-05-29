@@ -1049,3 +1049,29 @@ To reproduce the OoT demo from scratch:
 25. Verify Adult Link restrictions.
 26. Verify save prompt flow.
 
+
+## 22. Recent Iteration Decisions
+
+### 22.1 Persistent HUD is gameplay HUD, not pause-face content
+
+The heart, magic, Start, A, B, and C-button HUD is independent gameplay HUD. It must remain visible and fixed when the pause box opens, closes, spins, or enters the save prompt. The pause/cube faces may rotate or disappear; the HUD layer should not translate, scale, fold, rotate, or clip against those faces.
+
+### 22.2 Disabled Adult/Child entries are selectable but not usable
+
+Adult Link mode remains the default, but child-only inventory and equipment entries should still be selectable/focusable. This preserves the source-like slot layout and lets the player inspect disabled entries. Disabled entries are visibly dimmed and may show a small disabled detail label, but activation, C-button assignment, and equipment changes must be blocked with clear status feedback.
+
+### 22.3 Selection brackets and equip/highlight are distinct
+
+The white corner-bracket cursor indicates the current keyboard/gamepad selection, even on disabled entries. Equipped/important/highlighted state must use a separate visual treatment so the player can tell the difference between “currently selected” and “currently equipped.”
+
+### 22.4 Edge prompts are horizontal sentinels only
+
+The L/R page-turn prompts are focusable by horizontal navigation and clickable, but vertical movement should never choose them as the best target from an item/equipment grid. Moving left from L or right from R turns the page and lands on the opposite prompt of the neighboring page. Moving up/down from grid items should prefer the item above/below, not diagonal edge prompts.
+
+### 22.5 HUD button art uses icons, not runtime labels
+
+Start, A, and B should be rendered as generated HUD button icons without extra runtime text labels layered on top. The C-button targets should use yellow arrow art for empty/default targets; once an item is assigned, the item icon replaces/overwrites that arrow affordance and should not ghost transparently over the arrow.
+
+### 22.6 Save prompt close behavior
+
+After confirming save, the prompt should show a stable saved acknowledgement until dismissed. During the closing flip, the prompt should not snap back to the Yes/No state before the normal face returns. Normal selection is restored only after the prompt face has crossed back through the edge-on midpoint.

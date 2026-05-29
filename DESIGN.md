@@ -506,3 +506,14 @@ Once the OoT demo stabilizes, reusable pieces should be moved into the core crat
 
 The OoT-specific item lists, layouts, and save text should remain in the OoT demo crate.
 
+
+## 7. Recent OoT Demo Feedback Captured
+
+The OoT demo has accumulated several concrete interaction rules that should be preserved unless explicitly overridden:
+
+* The gameplay HUD layer, including hearts, magic, Start, A, B, and C indicators, is not part of the rotating pause pane and stays fixed/visible independently of the pause box.
+* Disabled child-only entries in Adult Link mode remain selectable/focusable for inspection, but cannot be assigned or equipped.
+* White corner brackets represent cursor selection; equipped/highlighted state uses a separate visual.
+* L/R edge prompts are horizontal focus sentinels only. Up/down navigation should not jump from an item grid into an edge prompt.
+* HUD buttons should use generated icon art rather than runtime text labels. C targets use arrow icons when empty, and assigned item icons overwrite the arrow target rather than blending transparently on top.
+* Save confirmation should return cleanly: after YES, keep the saved acknowledgement during the closing flip and restore normal cursor state after the face transition completes.

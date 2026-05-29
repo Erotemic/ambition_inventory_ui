@@ -420,7 +420,10 @@ impl OotDemo {
             return;
         }
         self.save_prompt_open = false;
-        self.save_complete = false;
+        // If the player confirmed YES, keep the Saved. acknowledgement visible
+        // while the face flips away. Reset save_complete only after the normal
+        // page has returned, otherwise the prompt visibly snaps back to YES/NO
+        // during the closing half of the animation.
         self.save_flip_target = 0.0;
         // Keep SaveYes/SaveNo focused while the prompt side of the flip is still
         // visible. The normal page focus is restored when the flip crosses back
@@ -572,7 +575,11 @@ impl OotDemo {
                 continue;
             }
             let perp = if dx != 0 { delta.y.abs() } else { delta.x.abs() };
-            let score = forward + perp * 0.42;
+            // Favor the straight-line neighbor in the requested direction. The
+            // previous forward-heavy score made diagonal edge prompts beat the
+            // item directly above/right below in the 6x4 item grid, e.g. pressing
+            // up from Nayru's Love could select R instead of Farore's Wind.
+            let score = perp * 4.0 + forward;
             if best.map(|(best_score, _)| score < best_score).unwrap_or(true) {
                 best = Some((score, target.action));
             }
@@ -722,10 +729,11 @@ impl OotAction {
             OotAction::EdgeLeft | OotAction::EdgeRight => !demo.save_modal_active(),
             OotAction::AssignC(_) | OotAction::Save => false,
             OotAction::SaveYes | OotAction::SaveNo => demo.save_prompt_face_visible(),
-            OotAction::Item(idx) => demo.page == OotPage::Items && oot_items()[idx].usable_by_current_link(),
-            OotAction::EquipChoice { slot, choice } => {
-                demo.page == OotPage::Equipment && equip_slots()[slot].choices[choice].usable_by_current_link()
-            }
+            // Source-like Adult Link behavior: child-only entries stay in the
+            // grid and can receive the cursor so the layout remains navigable,
+            // but activation/assignment/equip is blocked elsewhere.
+            OotAction::Item(_) => demo.page == OotPage::Items,
+            OotAction::EquipChoice { .. } => demo.page == OotPage::Equipment,
             OotAction::MapMarker(_) => demo.page == OotPage::Map,
             OotAction::QuestIcon(_) | OotAction::Song(_) => demo.page == OotPage::Quest,
         }
@@ -1222,7 +1230,7 @@ fn add_items_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo,
         let x = x0 + col as f32 * (cell_w + gap_x);
         let y = y0 + row as f32 * (cell_h + gap_y);
         let usable = item.usable_by_current_link();
-        let action = if active_face && usable { Some(OotAction::Item(i)) } else { None };
+        let action = active_face.then_some(OotAction::Item(i));
         let detail = if usable { item.detail.map(|s| s.to_string()) } else { Some("child".to_string()) };
         model.control_with_icon(
             MenuRect::new(x, y, cell_w, cell_h),
@@ -1230,7 +1238,7 @@ fn add_items_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo,
             "",
             detail,
             Some(item.icon),
-            usable && demo.selected == OotAction::Item(i),
+            demo.selected == OotAction::Item(i),
             item.important && usable,
             action,
         );
@@ -1331,32 +1339,25 @@ fn add_c_button_assignments(model: &mut MenuPageModel<OotPage, OotAction>, demo:
     // this demo. Keep only the three yellow C targets, anchored in screen/HUD
     // space rather than baked into any rotating page face.
     let assignments = [
-        ("", demo.c_left, C_LEFT_RECT, CButton::Left),
-        ("", demo.c_down, C_DOWN_RECT, CButton::Down),
-        ("", demo.c_right, C_RIGHT_RECT, CButton::Right),
+        (demo.c_left, C_LEFT_RECT, CButton::Left, "icons/oot/hud_button_c_left.png"),
+        (demo.c_down, C_DOWN_RECT, CButton::Down, "icons/oot/hud_button_c_down.png"),
+        (demo.c_right, C_RIGHT_RECT, CButton::Right, "icons/oot/hud_button_c_right.png"),
     ];
-    for (_label, idx, rect, button) in assignments {
+    for (idx, rect, button, fallback_icon) in assignments {
         let item = oot_items()[idx];
+        // C targets show arrows only when empty. Assigned items replace the
+        // arrow art entirely and sit on an opaque yellow button plate, so the
+        // arrow does not ghost through transparent pixels of the item icon.
+        let icon = if item.name.is_empty() { fallback_icon } else { item.icon };
         model.control_with_icon(
             rect,
             MenuControlKind::Action,
             "",
-            Some(item.name.to_string()),
-            Some("icons/oot/hud_button_c.png"),
+            None,
+            Some(icon),
             false,
             true,
             (!demo.save_modal_active()).then_some(OotAction::AssignC(button)),
-        );
-        let inset = rect.w * 0.24;
-        model.control_with_icon(
-            MenuRect::new(rect.x + inset, rect.y + inset, rect.w - inset * 2.0, rect.h - inset * 2.0),
-            MenuControlKind::Decoration,
-            "",
-            None,
-            Some(item.icon),
-            false,
-            false,
-            None,
         );
     }
 }
@@ -1419,9 +1420,9 @@ fn add_equipment_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotD
                 "",
                 detail,
                 Some(choice.icon),
-                usable && demo.selected == action,
-                equipped,
-                (active_face && usable).then_some(action),
+                demo.selected == action,
+                equipped && usable,
+                active_face.then_some(action),
             );
         }
     }
@@ -1674,7 +1675,13 @@ fn spawn_hud_control(
     important: bool,
     action: Option<OotAction>,
 ) {
-    let color = if icon.is_some() { Color::srgba(1.0, 1.0, 1.0, 0.02) } else { control_color(kind, selected, important) };
+    let color = if matches!(action, Some(OotAction::AssignC(_))) {
+        Color::srgba(0.92, 0.70, 0.10, 0.96)
+    } else if icon.is_some() {
+        Color::srgba(1.0, 1.0, 1.0, 0.02)
+    } else {
+        control_color(kind, selected, important)
+    };
     let material = materials.add(StandardMaterial {
         base_color: color,
         alpha_mode: AlphaMode::Blend,
@@ -2052,7 +2059,12 @@ fn spawn_text(ui: &mut ChildSpawnerCommands, materials: &mut Assets<StandardMate
 }
 
 fn is_disabled_control(kind: MenuControlKind, action: Option<OotAction>) -> bool {
-    action.is_none() && matches!(kind, MenuControlKind::Item | MenuControlKind::MapMarker | MenuControlKind::Action)
+    match action {
+        Some(OotAction::Item(idx)) => !oot_items()[idx].usable_by_current_link(),
+        Some(OotAction::EquipChoice { slot, choice }) => !equip_slots()[slot].choices[choice].usable_by_current_link(),
+        None => matches!(kind, MenuControlKind::Item | MenuControlKind::MapMarker | MenuControlKind::Action),
+        _ => false,
+    }
 }
 
 fn disabled_control_color() -> Color {
@@ -2408,9 +2420,19 @@ fn animate_equip_and_save(time: Res<Time>, shell: Res<MenuShell>, mut demo: ResM
         if was_prompt_face != is_prompt_face {
             demo.bump();
         }
-        if demo.save_flip == 0.0 && !demo.save_prompt_open && matches!(demo.selected, OotAction::SaveYes | OotAction::SaveNo | OotAction::Save) {
-            demo.restore_normal_selection_after_save();
-            demo.bump();
+        if demo.save_flip == 0.0 && !demo.save_prompt_open {
+            let mut changed = false;
+            if matches!(demo.selected, OotAction::SaveYes | OotAction::SaveNo | OotAction::Save) {
+                demo.restore_normal_selection_after_save();
+                changed = true;
+            }
+            if demo.save_complete {
+                demo.save_complete = false;
+                changed = true;
+            }
+            if changed {
+                demo.bump();
+            }
         }
     }
     if let Some(mut anim) = demo.equip_anim {
