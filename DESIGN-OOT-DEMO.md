@@ -629,7 +629,7 @@ Quest Status should follow source-like spatial relationships:
 * skulltula token indicator,
 * Stone of Agony,
 * Gerudo Card,
-* heart-piece indicator.
+* heart-piece indicator in a compact 2×2 grid near the top-middle of the Quest Status page.
 
 ### 13.2 Fit requirements
 
@@ -1074,4 +1074,4 @@ Start, A, and B should be rendered as generated HUD button icons without extra r
 
 ### 22.6 Save prompt close behavior
 
-After confirming save, the prompt should show a stable saved acknowledgement until dismissed. During the closing flip, the prompt should not snap back to the Yes/No state before the normal face returns. Normal selection is restored only after the prompt face has crossed back through the edge-on midpoint.
+After confirming save, the prompt should show a stable saved acknowledgement until dismissed. During the closing flip, the prompt should not snap back to the Yes/No state before the normal face returns. Once the closing flip crosses back through the edge-on midpoint and the normal pane is visible, normal selection and controls should be restored immediately; the UI should not remain visually disabled until the last sub-pixel tail of the rotation finishes.

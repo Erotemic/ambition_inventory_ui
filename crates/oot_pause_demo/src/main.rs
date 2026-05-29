@@ -179,7 +179,12 @@ impl OotDemo {
     }
 
     fn save_modal_active(&self) -> bool {
-        self.save_flip > 0.001 || self.save_flip_target > 0.001 || self.save_prompt_open
+        // Treat the save prompt as modal while it is opening, visible, or still
+        // on the prompt side of the closing flip. Once the closing flip crosses
+        // back past edge-on, the normal pause page is visible again and should
+        // immediately be interactive instead of staying in a disabled-looking
+        // limbo until the last few degrees of rotation finish.
+        self.save_prompt_open || self.save_flip_target > 0.001 || self.save_prompt_face_visible()
     }
 
     fn save_prompt_face_visible(&self) -> bool {
@@ -1172,7 +1177,7 @@ fn build_page_model(page: OotPage, demo: &OotDemo, active_face: bool) -> MenuPag
         return model;
     }
 
-    let page_actions_enabled = active_face && !demo.save_modal_active();
+    let page_actions_enabled = active_face && !demo.save_prompt_open && demo.save_flip_target <= 0.001;
     add_edge_buttons(&mut model, page, page_actions_enabled, demo.selected);
     match page {
         OotPage::Items => add_items_page(&mut model, demo, page_actions_enabled),
@@ -1612,18 +1617,22 @@ fn add_quest_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo,
         );
     }
 
-    // Heart-piece reminder. Four small hearts read better than one huge 48px source quad here.
-    for i in 0..4 {
-        model.control_with_icon(
-            MenuRect::new(60.5 + i as f32 * 5.1, 66.0, 4.8, 4.8),
-            MenuControlKind::Decoration,
-            "",
-            None,
-            Some("icons/oot/heart_piece.png"),
-            false,
-            false,
-            None,
-        );
+    // Heart-piece reminder. OoT shows collected heart pieces as a compact 2x2
+    // group near the top-middle of the Quest Status page, separate from the
+    // medallion/stone cluster. Keep these decorative and non-focusable.
+    for row in 0..2 {
+        for col in 0..2 {
+            model.control_with_icon(
+                MenuRect::new(45.2 + col as f32 * 5.4, 25.2 + row as f32 * 5.4, 4.9, 4.9),
+                MenuControlKind::Decoration,
+                "",
+                None,
+                Some("icons/oot/heart_piece.png"),
+                false,
+                false,
+                None,
+            );
+        }
     }
     model.text(50.0, 78.7, 2.35, "Quest icons, songs, skulltulas, stones, and heart reminders", MenuTextAlign::Center, mc(Color::srgb(0.82, 0.72, 0.88)));
 }
@@ -2431,6 +2440,14 @@ fn animate_equip_and_save(time: Res<Time>, shell: Res<MenuShell>, mut demo: ResM
                 changed = true;
             }
             if changed {
+                demo.bump();
+            }
+        } else if !demo.save_prompt_open && demo.save_flip_target <= 0.001 && !demo.save_prompt_face_visible() {
+            // The normal page is back on-screen after the closing midpoint.
+            // Restore a normal focus target and rebuild the face as enabled now,
+            // not only after the final sub-pixel tail of the flip animation.
+            if matches!(demo.selected, OotAction::SaveYes | OotAction::SaveNo | OotAction::Save) {
+                demo.restore_normal_selection_after_save();
                 demo.bump();
             }
         }

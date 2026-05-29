@@ -416,7 +416,7 @@ Quest Status should be source-inspired:
 * spiritual stones grouped correctly,
 * songs smaller than quest medallions,
 * skulltula indicator included,
-* heart-piece indicator included,
+* heart-piece indicator included as a 2×2 grid near the top-middle of the Quest Status page,
 * Stone of Agony / Gerudo Card included.
 
 Spacing should fit the page and avoid oversized gaps.
