@@ -69,7 +69,7 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(Update, menu_toggle_input)
         .add_systems(Update, (keyboard_navigation, mouse_navigation, pointer_hit_test, gamepad_navigation))
-        .add_systems(Update, (animate_menu_ring, rebuild_lunex_faces))
+        .add_systems(Update, (animate_equip_and_save, animate_menu_ring, rebuild_lunex_faces))
         .run();
 }
 
@@ -84,6 +84,10 @@ struct OotDemo {
     c_left: usize,
     c_down: usize,
     c_right: usize,
+    save_prompt_open: bool,
+    save_flip: f32,
+    save_flip_target: f32,
+    equip_anim: Option<EquipAnim>,
     status: String,
     revision: u64,
 }
@@ -100,6 +104,10 @@ impl Default for OotDemo {
             c_left: 9,
             c_down: 7,
             c_right: 3,
+            save_prompt_open: false,
+            save_flip: 0.0,
+            save_flip_target: 0.0,
+            equip_anim: None,
             status: "Complete inventory demo. Pick an item, assign it to C, or press B to save.".to_string(),
             revision: 0,
         }
@@ -183,20 +191,22 @@ impl OotDemo {
             }
             OotAction::AssignC(button) => {
                 if let OotAction::Item(idx) = previous_selected {
-                    match button {
-                        CButton::Left => self.c_left = idx,
-                        CButton::Down => self.c_down = idx,
-                        CButton::Right => self.c_right = idx,
-                    }
-                    self.status = format!("Assigned {} to C-{}.", oot_items()[idx].name, button.label());
+                    self.start_c_button_equip(idx, button);
                 } else {
                     self.status = "Select an item first, then assign it to a C-button.".to_string();
+                    self.bump();
                 }
-                self.bump();
             }
             OotAction::Save => {
+                self.toggle_save_prompt();
+            }
+            OotAction::SaveYes => {
                 self.status = "Game saved. Return to play or continue editing C-button assignments.".to_string();
-                self.bump();
+                self.toggle_save_prompt();
+            }
+            OotAction::SaveNo => {
+                self.status = "Save cancelled.".to_string();
+                self.toggle_save_prompt();
             }
             OotAction::EquipChoice { slot, choice } => {
                 match slot {
@@ -227,6 +237,65 @@ impl OotDemo {
         }
     }
 
+
+    fn toggle_save_prompt(&mut self) {
+        self.save_prompt_open = !self.save_prompt_open;
+        self.save_flip_target = if self.save_prompt_open { 1.0 } else { 0.0 };
+        self.status = if self.save_prompt_open {
+            "Save? Choose Yes or No. The active page flips around its horizontal center line.".to_string()
+        } else {
+            "Returned to item selection.".to_string()
+        };
+        self.bump();
+    }
+
+    fn start_c_button_equip(&mut self, item_idx: usize, button: CButton) {
+        let item = oot_items()[item_idx];
+        let button_idx = button.index();
+        let start = item_grid_center(item_idx);
+        let bow_idx = bow_item_index();
+        let is_arrow = arrow_kind(item_idx).is_some();
+        self.equip_anim = Some(EquipAnim {
+            item_idx,
+            target_button: button,
+            phase: if is_arrow { EquipAnimPhase::ArrowGlowToBow } else { EquipAnimPhase::ItemToButton },
+            progress: 0.0,
+            from: start,
+            via: item_grid_center(bow_idx),
+            to: c_button_center(button),
+        });
+        self.status = if let Some(kind) = arrow_kind(item_idx) {
+            format!("{} magic is modifying the Fairy Bow for C-{}.", kind.label(), button.label())
+        } else {
+            format!("Equipping {} to C-{}.", item.name, button.label())
+        };
+        // Functional OoT behavior happens at animation completion, but keep the
+        // target unique immediately so the button preview never duplicates slots.
+        self.preview_unique_c_button(item_idx, button_idx);
+        self.bump();
+    }
+
+    fn preview_unique_c_button(&mut self, item_idx: usize, button_idx: usize) {
+        let mut values = [self.c_left, self.c_down, self.c_right];
+        let target_family = c_slot_family(item_idx);
+        for i in 0..values.len() {
+            if i != button_idx && c_slot_family(values[i]) == target_family {
+                values.swap(i, button_idx);
+                break;
+            }
+        }
+        values[button_idx] = item_idx;
+        self.c_left = values[0];
+        self.c_down = values[1];
+        self.c_right = values[2];
+    }
+
+    fn finish_c_button_equip(&mut self, item_idx: usize, button: CButton) {
+        self.preview_unique_c_button(item_idx, button.index());
+        self.status = format!("Assigned {} to C-{}.", oot_items()[item_idx].name, button.label());
+        self.equip_anim = None;
+        self.bump();
+    }
 
     fn activate_selected(&mut self) {
         self.click(self.selected);
@@ -335,6 +404,14 @@ impl CButton {
             CButton::Right => "Right",
         }
     }
+
+    fn index(self) -> usize {
+        match self {
+            CButton::Left => 0,
+            CButton::Down => 1,
+            CButton::Right => 2,
+        }
+    }
 }
 
 /// Physical page-turn direction from the player's viewpoint inside the cube.
@@ -355,6 +432,8 @@ enum OotAction {
     EdgeRight,
     AssignC(CButton),
     Save,
+    SaveYes,
+    SaveNo,
     Item(usize),
     EquipChoice { slot: usize, choice: usize },
     MapMarker(usize),
@@ -368,7 +447,9 @@ impl OotAction {
             OotAction::EdgeLeft => format!("Rotate left to {}.", OotDemo::page_on_viewer_left(demo.page).label()),
             OotAction::EdgeRight => format!("Rotate right to {}.", OotDemo::page_on_viewer_right(demo.page).label()),
             OotAction::AssignC(button) => format!("Assign selected item to C-{}.", button.label()),
-            OotAction::Save => "Save the game.".to_string(),
+            OotAction::Save => "Open the save confirmation.".to_string(),
+            OotAction::SaveYes => "Save and close the confirmation.".to_string(),
+            OotAction::SaveNo => "Cancel saving.".to_string(),
             OotAction::Item(idx) => oot_items()[idx].name.to_string(),
             OotAction::EquipChoice { slot, choice } => format!("{}: {}", equip_slots()[slot].name, equip_slots()[slot].choices[choice].name),
             OotAction::MapMarker(idx) => map_markers()[idx].name.to_string(),
@@ -377,6 +458,50 @@ impl OotAction {
         }
     }
 }
+
+#[derive(Clone, Copy, Debug)]
+struct EquipAnim {
+    item_idx: usize,
+    target_button: CButton,
+    phase: EquipAnimPhase,
+    progress: f32,
+    from: Vec2,
+    via: Vec2,
+    to: Vec2,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EquipAnimPhase {
+    ItemToButton,
+    ArrowGlowToBow,
+    ArrowBowHold,
+    BowToButton,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ArrowKind { Fire, Ice, Light }
+
+impl ArrowKind {
+    fn label(self) -> &'static str {
+        match self {
+            ArrowKind::Fire => "Fire Arrow",
+            ArrowKind::Ice => "Ice Arrow",
+            ArrowKind::Light => "Light Arrow",
+        }
+    }
+
+    fn glow_icon(self) -> &'static str {
+        match self {
+            ArrowKind::Fire => "icons/oot/fire_arrow.png",
+            ArrowKind::Ice => "icons/oot/ice_arrow.png",
+            ArrowKind::Light => "icons/oot/light_arrow.png",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CSlotFamily { Bow, Item(usize) }
+
 
 #[derive(Resource, Clone, Debug)]
 struct MenuAnimation {
@@ -668,6 +793,15 @@ fn add_c_button_assignments(model: &mut MenuPageModel<OotPage, OotAction>, demo:
         true,
         active_face.then_some(OotAction::Save),
     );
+    if demo.save_flip > 0.5 || demo.save_prompt_open {
+        model.panel(MenuRect::new(25.0, 31.5, 50.0, 28.0), mc(Color::srgba(0.015, 0.016, 0.035, 0.98)), None);
+        model.text(50.0, 39.0, 3.2, "Save?", MenuTextAlign::Center, mc(Color::srgb(0.94, 0.86, 0.55)));
+        model.control_with_icon(MenuRect::new(35.0, 47.0, 12.0, 7.5), MenuControlKind::Action, "Yes", None, None::<String>, demo.selected == OotAction::SaveYes, true, active_face.then_some(OotAction::SaveYes));
+        model.control_with_icon(MenuRect::new(53.0, 47.0, 12.0, 7.5), MenuControlKind::Action, "No", None, None::<String>, demo.selected == OotAction::SaveNo, true, active_face.then_some(OotAction::SaveNo));
+    }
+    if let Some(anim) = demo.equip_anim {
+        add_equip_anim_visual(model, anim);
+    }
     model.text(50.0, 75.0, 2.2, "Select an item, then press Z / X / C to assign. Press B to save.", MenuTextAlign::Center, mc(Color::srgb(0.75, 0.83, 0.90)));
 }
 
@@ -872,7 +1006,7 @@ fn add_quest_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo,
     // Heart-piece reminder. Four small hearts read better than one huge 48px source quad here.
     for i in 0..4 {
         model.control_with_icon(
-            MenuRect::new(56.0 + i as f32 * 6.2, 70.0, 5.5, 5.5),
+            MenuRect::new(60.5 + i as f32 * 5.1, 66.0, 4.8, 4.8),
             MenuControlKind::Decoration,
             "",
             None,
@@ -1264,6 +1398,65 @@ fn gamepad_navigation(gamepads: Query<&Gamepad>, shell: Res<MenuShell>, mut demo
     }
 }
 
+
+fn animate_equip_and_save(time: Res<Time>, shell: Res<MenuShell>, mut demo: ResMut<OotDemo>) {
+    if !shell.is_visible() {
+        return;
+    }
+    let save_step = 1.0 - (-10.0 * time.delta_secs()).exp();
+    let next_save = demo.save_flip + (demo.save_flip_target - demo.save_flip) * save_step;
+    if (next_save - demo.save_flip).abs() > 0.001 {
+        demo.save_flip = next_save;
+        if (demo.save_flip - demo.save_flip_target).abs() < 0.004 {
+            demo.save_flip = demo.save_flip_target;
+        }
+        demo.bump();
+    }
+    if let Some(mut anim) = demo.equip_anim {
+        let speed = match anim.phase {
+            EquipAnimPhase::ItemToButton => 4.5,
+            EquipAnimPhase::ArrowGlowToBow => 5.8,
+            EquipAnimPhase::ArrowBowHold => 3.5,
+            EquipAnimPhase::BowToButton => 4.5,
+        };
+        anim.progress += time.delta_secs() * speed;
+        if anim.progress >= 1.0 {
+            match anim.phase {
+                EquipAnimPhase::ItemToButton => {
+                    demo.finish_c_button_equip(anim.item_idx, anim.target_button);
+                    return;
+                }
+                EquipAnimPhase::ArrowGlowToBow => {
+                    anim.phase = EquipAnimPhase::ArrowBowHold;
+                    anim.progress = 0.0;
+                }
+                EquipAnimPhase::ArrowBowHold => {
+                    anim.phase = EquipAnimPhase::BowToButton;
+                    anim.progress = 0.0;
+                }
+                EquipAnimPhase::BowToButton => {
+                    demo.finish_c_button_equip(anim.item_idx, anim.target_button);
+                    return;
+                }
+            }
+        }
+        demo.equip_anim = Some(anim);
+        demo.bump();
+    }
+}
+
+fn apply_save_flip(face: OotPage, active: OotPage, amount: f32, transform: &mut Transform) {
+    if face != active || amount <= 0.001 {
+        return;
+    }
+    // Rotate around the panel's horizontal center line. The scale easing keeps the
+    // panel visible through the midpoint instead of hard-cutting to the prompt.
+    let a = PI * amount.clamp(0.0, 1.0);
+    transform.rotation = transform.rotation * Quat::from_rotation_x(a);
+    let squash = (a.cos().abs()).max(0.18);
+    transform.scale.y *= squash;
+}
+
 fn mouse_navigation(mut wheel: MessageReader<MouseWheel>, shell: Res<MenuShell>, mut demo: ResMut<OotDemo>, mut menu: ResMut<MenuAnimation>) {
     if !shell.is_interactive() {
         return;
@@ -1287,6 +1480,7 @@ fn animate_menu_ring(
     mut menu: ResMut<MenuAnimation>,
     mut shell: ResMut<MenuShell>,
     mut effects: ResMut<MenuShellEffects>,
+    demo: Res<OotDemo>,
     mut last_phase: Local<Option<MenuShellPhase>>,
     mut ring_query: Query<(&mut Transform, &mut Visibility), (With<MenuRing>, Without<LunexFaceRoot>)>,
     mut face_query: Query<(&PageFace, &mut Transform), (With<LunexFaceRoot>, Without<MenuRing>)>,
@@ -1324,6 +1518,7 @@ fn animate_menu_ring(
             transform.translation = Vec3::new(0.0, -0.05 * (1.0 - open), -0.42 * (1.0 - open));
             for (face, mut t) in &mut face_query {
                 reset_face_transform(face.0, &mut t);
+                apply_save_flip(face.0, demo.page, demo.save_flip, &mut t);
             }
         }
         MenuOpenCloseStyle::OotPageFold => {
@@ -1332,6 +1527,7 @@ fn animate_menu_ring(
             let fold = OOT_PAGE_FOLD_RADIANS * (1.0 - open);
             for (face, mut t) in &mut face_query {
                 apply_oot_open_fold(face.0, fold, &mut t);
+                apply_save_flip(face.0, demo.page, demo.save_flip, &mut t);
             }
         }
     }
@@ -1436,6 +1632,76 @@ fn smoothstep(t: f32) -> f32 { t * t * (3.0 - 2.0 * t) }
 fn shortest_angle_delta(current: f32, target: f32) -> f32 {
     let two_pi = PI * 2.0;
     (target - current + PI).rem_euclid(two_pi) - PI
+}
+
+fn item_grid_center(idx: usize) -> Vec2 {
+    let cols = 6;
+    let cell_w = 10.0;
+    let cell_h = 11.5;
+    let gap_x = 1.4;
+    let gap_y = 1.5;
+    let x0 = 17.0;
+    let y0 = 24.0;
+    let col = idx % cols;
+    let row = idx / cols;
+    Vec2::new(x0 + col as f32 * (cell_w + gap_x) + cell_w * 0.5, y0 + row as f32 * (cell_h + gap_y) + cell_h * 0.5)
+}
+
+fn c_button_center(button: CButton) -> Vec2 {
+    match button {
+        CButton::Left => Vec2::new(24.0 + 5.1, 76.8 + 3.25),
+        CButton::Down => Vec2::new(38.0 + 5.1, 76.8 + 3.25),
+        CButton::Right => Vec2::new(52.0 + 5.1, 76.8 + 3.25),
+    }
+}
+
+fn bow_item_index() -> usize { 3 }
+
+fn arrow_kind(item_idx: usize) -> Option<ArrowKind> {
+    match item_idx {
+        4 => Some(ArrowKind::Fire),
+        10 => Some(ArrowKind::Ice),
+        16 => Some(ArrowKind::Light),
+        _ => None,
+    }
+}
+
+fn c_slot_family(item_idx: usize) -> CSlotFamily {
+    if item_idx == bow_item_index() || arrow_kind(item_idx).is_some() {
+        CSlotFamily::Bow
+    } else {
+        CSlotFamily::Item(item_idx)
+    }
+}
+
+fn lerp_vec2(a: Vec2, b: Vec2, t: f32) -> Vec2 {
+    a + (b - a) * smoothstep(t.clamp(0.0, 1.0))
+}
+
+fn add_equip_anim_visual(model: &mut MenuPageModel<OotPage, OotAction>, anim: EquipAnim) {
+    let t = anim.progress.clamp(0.0, 1.0);
+    let (pos, icon, label, size) = match anim.phase {
+        EquipAnimPhase::ItemToButton => (lerp_vec2(anim.from, anim.to, t), oot_items()[anim.item_idx].icon, "", 7.0),
+        EquipAnimPhase::ArrowGlowToBow => {
+            let kind = arrow_kind(anim.item_idx).unwrap_or(ArrowKind::Fire);
+            (lerp_vec2(anim.from, anim.via, t), kind.glow_icon(), "glow", 7.2 + 1.6 * (1.0 - t))
+        }
+        EquipAnimPhase::ArrowBowHold => {
+            let kind = arrow_kind(anim.item_idx).unwrap_or(ArrowKind::Fire);
+            (anim.via, kind.glow_icon(), "glow", 8.2 + (t * PI * 4.0).sin().abs())
+        }
+        EquipAnimPhase::BowToButton => (lerp_vec2(anim.via, anim.to, t), oot_items()[anim.item_idx].icon, "", 7.0),
+    };
+    model.control_with_icon(
+        MenuRect::new(pos.x - size * 0.5, pos.y - size * 0.5, size, size),
+        MenuControlKind::Decoration,
+        label,
+        None,
+        Some(icon),
+        true,
+        true,
+        None,
+    );
 }
 
 #[derive(Clone, Copy)]
