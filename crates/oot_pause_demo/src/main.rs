@@ -140,6 +140,7 @@ struct OotDemo {
     c_down: usize,
     c_right: usize,
     save_prompt_open: bool,
+    save_complete: bool,
     save_flip: f32,
     save_flip_target: f32,
     save_return_selection: OotAction,
@@ -161,6 +162,7 @@ impl Default for OotDemo {
             c_down: 7,
             c_right: 3,
             save_prompt_open: false,
+            save_complete: false,
             save_flip: 0.0,
             save_flip_target: 0.0,
             save_return_selection: OotAction::Item(3),
@@ -242,6 +244,25 @@ impl OotDemo {
         self.goto_page(target);
     }
 
+    fn turn_page_from_edge(&mut self, direction: PageTurn) {
+        let target = match direction {
+            PageTurn::ViewerLeft => Self::page_on_viewer_left(self.page),
+            PageTurn::ViewerRight => Self::page_on_viewer_right(self.page),
+        };
+        if self.page != target {
+            self.page = target;
+            // When the cursor crosses an edge prompt, OoT leaves the cursor on
+            // the facing neighbor prompt of the newly visible page. Example:
+            // moving right through R lands on L of the next page.
+            self.selected = match direction {
+                PageTurn::ViewerLeft => OotAction::EdgeRight,
+                PageTurn::ViewerRight => OotAction::EdgeLeft,
+            };
+            self.status = format!("{} page", target.label());
+            self.bump();
+        }
+    }
+
     fn next_page(&mut self) {
         self.turn_page(PageTurn::ViewerRight);
     }
@@ -281,8 +302,8 @@ impl OotDemo {
         }
         match action {
             // OoT-style edge prompts: left/right are physical directions from the player's view.
-            OotAction::EdgeLeft => self.turn_page(PageTurn::ViewerLeft),
-            OotAction::EdgeRight => self.turn_page(PageTurn::ViewerRight),
+            OotAction::EdgeLeft => self.turn_page_from_edge(PageTurn::ViewerLeft),
+            OotAction::EdgeRight => self.turn_page_from_edge(PageTurn::ViewerRight),
             OotAction::Item(idx) => {
                 let item = oot_items()[idx];
                 if !item.usable_by_current_link() {
@@ -304,10 +325,18 @@ impl OotDemo {
                 self.open_save_prompt();
             }
             OotAction::SaveYes => {
-                self.close_save_prompt("Game saved. Returning to the pause menu.");
+                if self.save_complete {
+                    self.close_save_prompt("Returned to the pause menu.");
+                } else {
+                    self.confirm_save();
+                }
             }
             OotAction::SaveNo => {
-                self.close_save_prompt("Save cancelled. Returning to the pause menu.");
+                if self.save_complete {
+                    self.close_save_prompt("Returned to the pause menu.");
+                } else {
+                    self.close_save_prompt("Save cancelled. Returning to the pause menu.");
+                }
             }
             OotAction::EquipChoice { slot, choice } => {
                 let option = equip_slots()[slot].choices[choice];
@@ -350,9 +379,23 @@ impl OotDemo {
         }
         self.save_return_selection = self.focusable_action_or_default(self.selected);
         self.save_prompt_open = true;
+        self.save_complete = false;
         self.save_flip_target = 1.0;
         self.selected = OotAction::SaveYes;
         self.status = "Save? Choose Yes or No. The active page flips around its horizontal center line.".to_string();
+        self.bump();
+    }
+
+    fn confirm_save(&mut self) {
+        if !self.save_prompt_open {
+            return;
+        }
+        // Match the source flow more closely: confirming YES shows a stable
+        // saved acknowledgement on the prompt face instead of immediately
+        // dropping into a closing animation where all normal inputs appear dead.
+        self.save_complete = true;
+        self.selected = OotAction::SaveNo;
+        self.status = "Saved. Press A, B, Start, Enter, or Space to return.".to_string();
         self.bump();
     }
 
@@ -361,6 +404,7 @@ impl OotDemo {
             return;
         }
         self.save_prompt_open = false;
+        self.save_complete = false;
         self.save_flip_target = 0.0;
         // Keep SaveYes/SaveNo focused while the prompt side of the flip is still
         // visible. The normal page focus is restored when the flip crosses back
@@ -463,6 +507,19 @@ impl OotDemo {
     }
 
     fn move_spatial(&mut self, dx: i32, dy: i32) {
+        if dy == 0 {
+            match (self.selected, dx) {
+                (OotAction::EdgeLeft, d) if d < 0 => {
+                    self.turn_page_from_edge(PageTurn::ViewerLeft);
+                    return;
+                }
+                (OotAction::EdgeRight, d) if d > 0 => {
+                    self.turn_page_from_edge(PageTurn::ViewerRight);
+                    return;
+                }
+                _ => {}
+            }
+        }
         let targets = active_page_focus_targets(self);
         let current = self.selected;
         let Some(current_target) = targets.iter().find(|t| t.action == current) else {
@@ -635,10 +692,12 @@ impl OotAction {
 
     fn is_focusable_for(self, demo: &OotDemo) -> bool {
         match self {
-            // Edge prompts, C targets, and HUD A/B/Start indicators are actionable
-            // affordances, not cursor stops. This prevents D-pad focus from
-            // landing on them and then turning pages on a follow-up confirm.
-            OotAction::EdgeLeft | OotAction::EdgeRight | OotAction::AssignC(_) | OotAction::Save => false,
+            // Edge prompts are focusable sentinels: arrowing onto L/R highlights
+            // them, and arrowing farther past them rotates to the neighbor page
+            // while keeping focus on the opposite prompt. HUD C/A/B/Start are
+            // still actionable indicators, not focus targets.
+            OotAction::EdgeLeft | OotAction::EdgeRight => !demo.save_modal_active(),
+            OotAction::AssignC(_) | OotAction::Save => false,
             OotAction::SaveYes | OotAction::SaveNo => demo.save_prompt_face_visible(),
             OotAction::Item(idx) => demo.page == OotPage::Items && oot_items()[idx].usable_by_current_link(),
             OotAction::EquipChoice { slot, choice } => {
@@ -1049,7 +1108,7 @@ fn build_page_model(page: OotPage, demo: &OotDemo, active_face: bool) -> MenuPag
     }
 
     let page_actions_enabled = active_face && !demo.save_modal_active();
-    add_edge_buttons(&mut model, page, page_actions_enabled);
+    add_edge_buttons(&mut model, page, page_actions_enabled, demo.selected);
     match page {
         OotPage::Items => add_items_page(&mut model, demo, page_actions_enabled),
         OotPage::Equipment => add_equipment_page(&mut model, demo, page_actions_enabled),
@@ -1068,14 +1127,14 @@ fn build_pause_hud_model(demo: &OotDemo) -> MenuPageModel<OotPage, OotAction> {
     model
 }
 
-fn add_edge_buttons(model: &mut MenuPageModel<OotPage, OotAction>, _page: OotPage, active_face: bool) {
+fn add_edge_buttons(model: &mut MenuPageModel<OotPage, OotAction>, _page: OotPage, active_face: bool, selected: OotAction) {
     model.control_with_icon(
         MenuRect::new(1.2, 38.0, 10.0, 24.0),
         MenuControlKind::Tab,
         "",
         Some("L".to_string()),
         Some("icons/oot/edge_left.png"),
-        false,
+        active_face && selected == OotAction::EdgeLeft,
         true,
         active_face.then_some(OotAction::EdgeLeft),
     );
@@ -1085,7 +1144,7 @@ fn add_edge_buttons(model: &mut MenuPageModel<OotPage, OotAction>, _page: OotPag
         "",
         Some("R".to_string()),
         Some("icons/oot/edge_right.png"),
-        false,
+        active_face && selected == OotAction::EdgeRight,
         true,
         active_face.then_some(OotAction::EdgeRight),
     );
@@ -1127,9 +1186,15 @@ fn add_save_prompt_panel(model: &mut MenuPageModel<OotPage, OotAction>, demo: &O
     // inventory/equipment/map/quest controls.
     model.panel(MenuRect::new(18.0, 24.0, 64.0, 46.0), mc(Color::srgba(0.006, 0.008, 0.025, 1.0)), None);
     model.panel(MenuRect::new(24.0, 31.0, 52.0, 29.0), mc(Color::srgba(0.022, 0.026, 0.060, 1.0)), None);
-    model.text(50.0, 38.5, 3.2, "Would you like to save?", MenuTextAlign::Center, mc(Color::srgb(0.94, 0.86, 0.55)));
-    model.control_with_icon(MenuRect::new(34.0, 47.0, 13.5, 7.8), MenuControlKind::Action, "YES", None, None::<String>, demo.selected == OotAction::SaveYes, true, Some(OotAction::SaveYes));
-    model.control_with_icon(MenuRect::new(52.5, 47.0, 13.5, 7.8), MenuControlKind::Action, "NO", None, None::<String>, demo.selected == OotAction::SaveNo, true, Some(OotAction::SaveNo));
+    if demo.save_complete {
+        model.text(50.0, 38.5, 3.6, "Saved.", MenuTextAlign::Center, mc(Color::srgb(0.94, 0.86, 0.55)));
+        model.text(50.0, 45.0, 1.8, "Press A/B/Start to return", MenuTextAlign::Center, mc(Color::srgb(0.78, 0.84, 0.92)));
+        model.control_with_icon(MenuRect::new(43.0, 51.0, 14.0, 7.8), MenuControlKind::Action, "OK", None, None::<String>, true, true, Some(OotAction::SaveNo));
+    } else {
+        model.text(50.0, 38.5, 3.2, "Would you like to save?", MenuTextAlign::Center, mc(Color::srgb(0.94, 0.86, 0.55)));
+        model.control_with_icon(MenuRect::new(34.0, 47.0, 13.5, 7.8), MenuControlKind::Action, "YES", None, None::<String>, demo.selected == OotAction::SaveYes, true, Some(OotAction::SaveYes));
+        model.control_with_icon(MenuRect::new(52.5, 47.0, 13.5, 7.8), MenuControlKind::Action, "NO", None, None::<String>, demo.selected == OotAction::SaveNo, true, Some(OotAction::SaveNo));
+    }
 }
 
 fn add_pause_hud_overlay(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, _active_face: bool) {
@@ -1982,6 +2047,12 @@ fn keyboard_navigation(keys: Res<ButtonInput<KeyCode>>, shell: Res<MenuShell>, m
         if !demo.save_prompt_open {
             return;
         }
+        if demo.save_complete {
+            if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) || keys.just_pressed(KeyCode::KeyB) || keys.just_pressed(KeyCode::Escape) {
+                demo.close_save_prompt("Returned to the pause menu.");
+            }
+            return;
+        }
         if keys.just_pressed(KeyCode::ArrowLeft) || keys.just_pressed(KeyCode::KeyA) {
             demo.choose_save_yes();
         }
@@ -2056,6 +2127,16 @@ fn gamepad_navigation(
     }
     if demo.save_modal_active() {
         if !demo.save_prompt_open {
+            c_stick.active = None;
+            nav_stick.active = None;
+            return;
+        }
+        if demo.save_complete {
+            for gamepad in &gamepads {
+                if gamepad.just_pressed(GamepadButton::South) || gamepad.just_pressed(GamepadButton::East) || gamepad.just_pressed(GamepadButton::Start) {
+                    demo.close_save_prompt("Returned to the pause menu.");
+                }
+            }
             c_stick.active = None;
             nav_stick.active = None;
             return;
