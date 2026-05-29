@@ -44,6 +44,7 @@ const DEPTH_HUD_ICON: f32 = -1.55;
 const DEPTH_HUD_TEXT: f32 = -1.70;
 const FONT_FAMILY: &str = "DejaVu Sans";
 const FPS_WINDOW_SAMPLES: usize = 120;
+const SAVE_FLIP_SPEED: f32 = 2.8;
 
 // HUD rectangles are authored in final visual page coordinates: x grows left-to-right
 // and y grows top-to-bottom on the visible pause face. Earlier patches tried to
@@ -2053,7 +2054,7 @@ fn animate_equip_and_save(time: Res<Time>, shell: Res<MenuShell>, mut demo: ResM
     if !shell.is_visible() {
         return;
     }
-    let save_step = 1.0 - (-10.0 * time.delta_secs()).exp();
+    let save_step = 1.0 - (-SAVE_FLIP_SPEED * time.delta_secs()).exp();
     let next_save = demo.save_flip + (demo.save_flip_target - demo.save_flip) * save_step;
     if (next_save - demo.save_flip).abs() > 0.001 {
         // The flip is a transform animation, not a content rebuild animation.
@@ -2171,10 +2172,11 @@ fn animate_menu_ring(
     *visibility = if shell.is_visible() { Visibility::Visible } else { Visibility::Hidden };
     for (mut hud_transform, mut hud_visibility) in &mut hud_query {
         *hud_visibility = if shell.is_visible() { Visibility::Visible } else { Visibility::Hidden };
-        let open = smoothstep(shell.openness.clamp(0.0, 1.0));
-        hud_transform.translation = Vec3::new(0.0, -0.10 * (1.0 - open), PAGE_RADIUS - HUD_Z_OFFSET_TOWARD_CAMERA);
-        let hud_scale = MIN_OPEN_SCALE + (1.0 - MIN_OPEN_SCALE) * open;
-        hud_transform.scale = Vec3::new(HUD_SCREEN_X_FLIP * hud_scale, hud_scale, hud_scale);
+        // Gameplay HUD elements are outside the pause pane in OoT. They should
+        // not inherit the pause cube open/close fold, page rotation, or save
+        // prompt pitch; they only toggle visibility with the menu shell.
+        hud_transform.translation = Vec3::new(0.0, 0.0, PAGE_RADIUS - HUD_Z_OFFSET_TOWARD_CAMERA);
+        hud_transform.scale = Vec3::new(HUD_SCREEN_X_FLIP, 1.0, 1.0);
         hud_transform.rotation = Quat::IDENTITY;
     }
     let phase = shell.phase();
