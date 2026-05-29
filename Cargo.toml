@@ -67,3 +67,28 @@ path = "src/main.rs"
 [dependencies]
 bevy = "0.18.1"
 bevy_lunex = { path = "vendor/bevy_lunex/crate" }
+
+# Development runtime profile for Bevy demos.
+#
+# Plain Rust debug builds keep dependencies at opt-level 0, which is often
+# dramatically slower for Bevy/wgpu/rendering-heavy workloads. Keep local crate
+# code lightly optimized for good debugging, but build dependency crates with
+# release-like speed so dev-mode FPS is representative enough for iteration.
+[profile.dev]
+opt-level = 1
+debug = true
+incremental = true
+
+[profile.dev.package."*"]
+opt-level = 3
+debug = true
+
+# Keep our editable crates at a lower optimization level than Bevy/wgpu/Lunex so
+# line-level debugging remains usable in the code we are actively changing.
+[profile.dev.package.ambition_inventory_ui]
+opt-level = 1
+debug = true
+
+[profile.dev.package.oot_pause_demo]
+opt-level = 1
+debug = true
