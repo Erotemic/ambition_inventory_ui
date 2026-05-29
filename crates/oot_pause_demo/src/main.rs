@@ -4,10 +4,11 @@ use std::sync::Arc;
 
 use bevy::anti_alias::fxaa::Fxaa;
 use bevy::core_pipeline::oit::OrderIndependentTransparencySettings;
+use bevy::input::gamepad::GamepadAxis;
 use bevy::input::mouse::MouseWheel;
 use bevy::input::touch::{TouchInput, TouchPhase};
 use bevy::prelude::*;
-use bevy::window::{PrimaryWindow, SystemCursorIcon};
+use bevy::window::{PresentMode, PrimaryWindow, SystemCursorIcon};
 use bevy_lunex::prelude::*;
 
 use ambition_inventory_ui::{
@@ -50,6 +51,9 @@ fn main() {
             primary_window: Some(Window {
                 title: "Ambition Inventory UI - OoT Functional Pause Demo".to_string(),
                 resolution: (1180, 760).into(),
+                // Do not emulate OoT's low presentation cadence. Keep animations
+                // time-based, but let the demo present as fast as the host can render.
+                present_mode: PresentMode::AutoNoVsync,
                 ..default()
             }),
             ..default()
@@ -69,6 +73,7 @@ fn main() {
         .insert_resource(MenuShell::default_open())
         .insert_resource(MenuShellEffects::default())
         .insert_resource(FpsWindow::default())
+        .insert_resource(GamepadCStickState::default())
         .insert_resource(MenuShellConfig {
             open_close_style: MenuOpenCloseStyle::OotPageFold,
             page_rotate_speed: 5.2,
@@ -598,6 +603,11 @@ struct FpsWindow {
 
 impl Default for FpsWindow {
     fn default() -> Self { Self { samples: VecDeque::with_capacity(FPS_WINDOW_SAMPLES) } }
+}
+
+#[derive(Resource, Default, Debug)]
+struct GamepadCStickState {
+    active: Option<CButton>,
 }
 
 
@@ -1438,11 +1448,19 @@ fn keyboard_navigation(keys: Res<ButtonInput<KeyCode>>, shell: Res<MenuShell>, m
     }
 }
 
-fn gamepad_navigation(gamepads: Query<&Gamepad>, shell: Res<MenuShell>, mut demo: ResMut<OotDemo>, mut menu: ResMut<MenuAnimation>) {
+fn gamepad_navigation(
+    gamepads: Query<&Gamepad>,
+    shell: Res<MenuShell>,
+    mut demo: ResMut<OotDemo>,
+    mut menu: ResMut<MenuAnimation>,
+    mut c_stick: ResMut<GamepadCStickState>,
+) {
     if !shell.is_interactive() {
+        c_stick.active = None;
         return;
     }
     let before_page = demo.page;
+    let mut any_stick_direction = None;
     for gamepad in &gamepads {
         if gamepad.just_pressed(GamepadButton::LeftTrigger) || gamepad.just_pressed(GamepadButton::LeftTrigger2) {
             demo.turn_page(PageTurn::ViewerLeft);
@@ -1465,6 +1483,15 @@ fn gamepad_navigation(gamepads: Query<&Gamepad>, shell: Res<MenuShell>, mut demo
         if gamepad.just_pressed(GamepadButton::South) {
             demo.activate_selected();
         }
+        // In the N64 layout these are C-left/C-down/C-right, not focusable
+        // menu controls. On modern pads, use the left stick as a C-button
+        // cluster: push left/down/right to assign the highlighted inventory item.
+        let x = gamepad.get(GamepadAxis::LeftStickX).unwrap_or(0.0);
+        let y = gamepad.get(GamepadAxis::LeftStickY).unwrap_or(0.0);
+        any_stick_direction = any_stick_direction.or_else(|| c_button_from_left_stick(x, y));
+
+        // Keep the face-button fallback for controllers or keyboards that do not
+        // expose reliable analog stick events, but do not move the cursor.
         if gamepad.just_pressed(GamepadButton::West) {
             demo.assign_selected_item_to_c_button(CButton::Left);
         }
@@ -1475,8 +1502,31 @@ fn gamepad_navigation(gamepads: Query<&Gamepad>, shell: Res<MenuShell>, mut demo
             demo.press_b_button();
         }
     }
+    if any_stick_direction != c_stick.active {
+        if let Some(button) = any_stick_direction {
+            demo.assign_selected_item_to_c_button(button);
+        }
+        c_stick.active = any_stick_direction;
+    }
     if demo.page != before_page {
         menu.set_page(demo.page);
+    }
+}
+
+fn c_button_from_left_stick(x: f32, y: f32) -> Option<CButton> {
+    const DEAD_ZONE: f32 = 0.62;
+    let ax = x.abs();
+    let ay = y.abs();
+    if ax < DEAD_ZONE && ay < DEAD_ZONE {
+        return None;
+    }
+    if ax >= ay {
+        if x < 0.0 { Some(CButton::Left) } else { Some(CButton::Right) }
+    } else if y < 0.0 {
+        Some(CButton::Down)
+    } else {
+        // C-up is not an inventory assignment slot in this demo.
+        None
     }
 }
 
