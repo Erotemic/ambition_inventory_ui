@@ -116,7 +116,13 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(Update, menu_toggle_input)
         .add_systems(Update, (keyboard_navigation, mouse_navigation, pointer_hit_test, gamepad_navigation))
-        .add_systems(Update, (animate_equip_and_save, animate_menu_ring, rebuild_lunex_faces, tag_hud_render_layers, update_fps_debug_overlay).chain())
+        .add_systems(Update, (
+            animate_equip_and_save,
+            rebuild_lunex_faces,
+            tag_hud_render_layers,
+            animate_menu_ring,
+            update_fps_debug_overlay,
+        ).chain())
         .run();
 }
 
@@ -2050,11 +2056,21 @@ fn animate_equip_and_save(time: Res<Time>, shell: Res<MenuShell>, mut demo: ResM
     let save_step = 1.0 - (-10.0 * time.delta_secs()).exp();
     let next_save = demo.save_flip + (demo.save_flip_target - demo.save_flip) * save_step;
     if (next_save - demo.save_flip).abs() > 0.001 {
+        // The flip is a transform animation, not a content rebuild animation.
+        // Rebuilding the active Lunex face every frame resets its Transform after
+        // animate_menu_ring applies the pitch, which made B-to-save look like a
+        // hard content cut with no visible rotation. Only bump the rendered page
+        // model when the flip crosses the edge-on midpoint and the visible face
+        // needs to switch between normal pause contents and save-prompt contents.
+        let was_prompt_face = demo.save_prompt_face_visible();
         demo.save_flip = next_save;
         if (demo.save_flip - demo.save_flip_target).abs() < 0.004 {
             demo.save_flip = demo.save_flip_target;
         }
-        demo.bump();
+        let is_prompt_face = demo.save_prompt_face_visible();
+        if was_prompt_face != is_prompt_face {
+            demo.bump();
+        }
     }
     if let Some(mut anim) = demo.equip_anim {
         let speed = match anim.phase {
@@ -2093,17 +2109,17 @@ fn apply_save_flip(face: OotPage, active: OotPage, amount: f32, transform: &mut 
     if face != active || amount <= 0.001 {
         return;
     }
-    // Two-phase prompt flip: rotate the active face to edge-on, swap contents in
-    // add_save_prompt_panel at the midpoint, then rotate back to a front-facing
-    // prompt. A full 180 degree rotation leaves the text upside down/back-facing
-    // in this inside-cube setup, which was the source of the broken B-to-save
-    // display.
+    // Two-phase prompt flip: rotate the active face around its horizontal center
+    // line until it is edge-on, swap the page contents at the midpoint, then
+    // rotate the replacement prompt face back to the viewer. This approximates
+    // OoT's promptPitch behavior while keeping the prompt readable instead of
+    // ending upside-down/back-facing. Do not apply this to the HUD overlay: hearts,
+    // magic, A/B, and C buttons live on their own render layer and stay fixed.
     let t = amount.clamp(0.0, 1.0);
     let half = if t < 0.5 { t * 2.0 } else { (1.0 - t) * 2.0 };
     let eased = smoothstep(half);
-    let a = FRAC_PI_2 * eased;
-    transform.rotation = transform.rotation * Quat::from_rotation_x(a);
-    transform.scale.y *= a.cos().abs().max(0.08);
+    let angle = FRAC_PI_2 * eased;
+    transform.rotation = transform.rotation * Quat::from_rotation_x(angle);
 }
 
 fn mouse_navigation(mut wheel: MessageReader<MouseWheel>, shell: Res<MenuShell>, mut demo: ResMut<OotDemo>, mut menu: ResMut<MenuAnimation>) {
