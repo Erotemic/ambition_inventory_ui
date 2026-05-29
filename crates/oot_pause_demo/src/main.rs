@@ -48,13 +48,13 @@ const FPS_WINDOW_SAMPLES: usize = 120;
 // points funneled through these constants/helpers instead of repeating ad-hoc
 // inversions in each call site.
 const C_BUTTON_SIZE: f32 = 7.8;
-const C_LEFT_RECT: MenuRect = MenuRect { x: 75.0, y: 10.5, w: C_BUTTON_SIZE, h: C_BUTTON_SIZE };
-const C_DOWN_RECT: MenuRect = MenuRect { x: 83.5, y: 18.5, w: C_BUTTON_SIZE, h: C_BUTTON_SIZE };
-const C_RIGHT_RECT: MenuRect = MenuRect { x: 92.0, y: 10.5, w: C_BUTTON_SIZE, h: C_BUTTON_SIZE };
-const C_UP_RECT: MenuRect = MenuRect { x: 83.5, y: 2.8, w: C_BUTTON_SIZE, h: C_BUTTON_SIZE };
-const B_BUTTON_RECT: MenuRect = MenuRect { x: 59.0, y: 73.0, w: 8.2, h: 8.2 };
-const A_BUTTON_RECT: MenuRect = MenuRect { x: 70.0, y: 72.0, w: 9.2, h: 9.2 };
-const START_BUTTON_RECT: MenuRect = MenuRect { x: 47.0, y: 7.0, w: 8.5, h: 5.8 };
+const C_LEFT_RECT: MenuRect = MenuRect { x: 76.5, y: 8.0, w: C_BUTTON_SIZE, h: C_BUTTON_SIZE };
+const C_DOWN_RECT: MenuRect = MenuRect { x: 84.8, y: 16.2, w: C_BUTTON_SIZE, h: C_BUTTON_SIZE };
+const C_RIGHT_RECT: MenuRect = MenuRect { x: 93.0, y: 8.0, w: C_BUTTON_SIZE, h: C_BUTTON_SIZE };
+const B_BUTTON_RECT: MenuRect = MenuRect { x: 59.0, y: 9.5, w: 8.2, h: 8.2 };
+const A_BUTTON_RECT: MenuRect = MenuRect { x: 68.5, y: 8.7, w: 9.2, h: 9.2 };
+const START_BUTTON_RECT: MenuRect = MenuRect { x: 45.8, y: 6.4, w: 8.5, h: 5.8 };
+const HUD_Z_OFFSET_TOWARD_CAMERA: f32 = 0.08;
 
 
 fn main() {
@@ -356,7 +356,7 @@ impl OotDemo {
     }
 
     fn move_spatial(&mut self, dx: i32, dy: i32) {
-        let targets = active_hit_targets(self);
+        let targets = active_page_hit_targets(self);
         let current = self.selected;
         let Some(current_target) = targets.iter().find(|t| t.action == current) else {
             if let Some(first) = targets.first() {
@@ -617,6 +617,8 @@ struct LunexFaceRoot;
 struct PageFace(OotPage);
 #[derive(Component)]
 struct FpsDebugText;
+#[derive(Component)]
+struct HudOverlayRoot;
 
 #[derive(Resource, Debug)]
 struct FpsWindow {
@@ -680,6 +682,7 @@ fn setup(
     commands.entity(ring).with_children(|ring| {
         spawn_all_faces(ring, &demo, &mut materials, &asset_server);
     });
+    spawn_hud_overlay(&mut commands, &demo, &mut materials, &asset_server);
 }
 
 fn update_fps_debug_overlay(
@@ -718,6 +721,7 @@ fn rebuild_lunex_faces(
     demo: Res<OotDemo>,
     ring_query: Query<Entity, With<MenuRing>>,
     face_query: Query<(Entity, &PageFace), With<LunexFaceRoot>>,
+    hud_query: Query<Entity, With<HudOverlayRoot>>,
     mut last_revision: Local<Option<u64>>,
     mut last_page: Local<Option<OotPage>>,
 ) {
@@ -739,8 +743,33 @@ fn rebuild_lunex_faces(
         }
         commands.entity(ring).with_children(|ring| spawn_face(ring, demo.page, &demo, &mut materials, &asset_server));
     }
+    for entity in &hud_query {
+        commands.entity(entity).despawn();
+    }
+    spawn_hud_overlay(&mut commands, &demo, &mut materials, &asset_server);
     *last_revision = Some(demo.revision);
     *last_page = Some(demo.page);
+}
+
+fn spawn_hud_overlay(
+    commands: &mut Commands,
+    demo: &OotDemo,
+    materials: &mut Assets<StandardMaterial>,
+    asset_server: &AssetServer,
+) {
+    let model = build_pause_hud_model(demo);
+    commands.spawn((
+        Name::new("OoT pause HUD overlay"),
+        HudOverlayRoot,
+        UiRoot3d,
+        UiLayoutRoot::new_3d(),
+        Dimension::from((PAGE_W, PAGE_H)),
+        // The HUD is not a child of MenuRing, so it does not rotate with the
+        // cube or with the save-prompt flip. It sits just in front of the active
+        // face in camera-facing page coordinates where x grows visually right.
+        Transform::from_translation(Vec3::new(0.0, 0.0, PAGE_RADIUS - HUD_Z_OFFSET_TOWARD_CAMERA)),
+        Visibility::Visible,
+    )).with_children(|ui| render_overlay_model(ui, materials, asset_server, &model));
 }
 
 fn spawn_all_faces(
@@ -825,8 +854,14 @@ fn build_page_model(page: OotPage, demo: &OotDemo, active_face: bool) -> MenuPag
         OotPage::Map => add_map_page(&mut model, demo, active_face),
         OotPage::Quest => add_quest_page(&mut model, demo, active_face),
     }
-    add_pause_hud_overlay(&mut model, demo, active_face);
+    add_save_prompt_panel(&mut model, demo);
     add_status_band(&mut model, demo);
+    model
+}
+
+fn build_pause_hud_model(demo: &OotDemo) -> MenuPageModel<OotPage, OotAction> {
+    let mut model = MenuPageModel::new(demo.page, "Pause HUD", mc(Color::NONE));
+    add_pause_hud_overlay(&mut model, demo, true);
     model
 }
 
@@ -880,6 +915,18 @@ fn add_items_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo,
     }
 }
 
+fn add_save_prompt_panel(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo) {
+    // The save prompt belongs to the active pause pane and participates in the
+    // horizontal flip animation. Gameplay HUD widgets remain separate and do not
+    // rotate with this prompt.
+    if demo.save_flip > 0.5 || demo.save_prompt_open {
+        model.panel(MenuRect::new(25.0, 31.5, 50.0, 28.0), mc(Color::srgba(0.015, 0.016, 0.035, 0.98)), None);
+        model.text(50.0, 39.0, 3.2, "Would you like to save?", MenuTextAlign::Center, mc(Color::srgb(0.94, 0.86, 0.55)));
+        model.control_with_icon(MenuRect::new(35.0, 47.0, 12.0, 7.5), MenuControlKind::Action, "Yes", None, None::<String>, demo.selected == OotAction::SaveYes, true, Some(OotAction::SaveYes));
+        model.control_with_icon(MenuRect::new(53.0, 47.0, 12.0, 7.5), MenuControlKind::Action, "No", None, None::<String>, demo.selected == OotAction::SaveNo, true, Some(OotAction::SaveNo));
+    }
+}
+
 fn add_pause_hud_overlay(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, _active_face: bool) {
     // HUD elements are indicators layered over every pause face. They are not
     // focusable menu cells, and the explicit project instruction says the C/A/B
@@ -889,12 +936,6 @@ fn add_pause_hud_overlay(model: &mut MenuPageModel<OotPage, OotAction>, demo: &O
     add_action_button_indicators(model);
     add_c_button_assignments(model, demo);
 
-    if demo.save_flip > 0.5 || demo.save_prompt_open {
-        model.panel(MenuRect::new(25.0, 31.5, 50.0, 28.0), mc(Color::srgba(0.015, 0.016, 0.035, 0.98)), None);
-        model.text(50.0, 39.0, 3.2, "Save?", MenuTextAlign::Center, mc(Color::srgb(0.94, 0.86, 0.55)));
-        model.control_with_icon(MenuRect::new(35.0, 47.0, 12.0, 7.5), MenuControlKind::Action, "Yes", None, None::<String>, demo.selected == OotAction::SaveYes, true, Some(OotAction::SaveYes));
-        model.control_with_icon(MenuRect::new(53.0, 47.0, 12.0, 7.5), MenuControlKind::Action, "No", None, None::<String>, demo.selected == OotAction::SaveNo, true, Some(OotAction::SaveNo));
-    }
     if let Some(anim) = demo.equip_anim {
         add_equip_anim_visual(model, anim);
     }
@@ -941,7 +982,7 @@ fn add_action_button_indicators(model: &mut MenuPageModel<OotPage, OotAction>) {
         None::<String>,
         false,
         true,
-        None,
+        Some(OotAction::Save),
     );
     model.control_with_icon(
         A_BUTTON_RECT,
@@ -956,23 +997,15 @@ fn add_action_button_indicators(model: &mut MenuPageModel<OotPage, OotAction>) {
 }
 
 fn add_c_button_assignments(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo) {
-    model.panel(MenuRect::new(73.0, 1.4, 26.0, 27.5), mc(Color::srgba(0.010, 0.012, 0.020, 0.82)), None);
-    model.control_with_icon(
-        C_UP_RECT,
-        MenuControlKind::Decoration,
-        "C^",
-        Some("Navi".to_string()),
-        None::<String>,
-        false,
-        true,
-        None,
-    );
+    // C-up is intentionally omitted: it is not an assignable inventory target in
+    // this demo. Keep only the three yellow C targets, anchored in screen/HUD
+    // space rather than baked into any rotating page face.
     let assignments = [
-        ("C<", demo.c_left, C_LEFT_RECT),
-        ("Cv", demo.c_down, C_DOWN_RECT),
-        ("C>", demo.c_right, C_RIGHT_RECT),
+        ("C<", demo.c_left, C_LEFT_RECT, CButton::Left),
+        ("Cv", demo.c_down, C_DOWN_RECT, CButton::Down),
+        ("C>", demo.c_right, C_RIGHT_RECT, CButton::Right),
     ];
-    for (label, idx, rect) in assignments {
+    for (label, idx, rect, button) in assignments {
         let item = oot_items()[idx];
         model.control_with_icon(
             rect,
@@ -982,7 +1015,7 @@ fn add_c_button_assignments(model: &mut MenuPageModel<OotPage, OotAction>, demo:
             Some(item.icon),
             false,
             true,
-            None,
+            Some(OotAction::AssignC(button)),
         );
     }
 }
@@ -1215,6 +1248,23 @@ fn add_status_band(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo
         MenuTextAlign::Center,
         mc(Color::srgb(0.90, 0.84, 0.64)),
     );
+}
+
+fn render_overlay_model(
+    ui: &mut ChildSpawnerCommands,
+    materials: &mut Assets<StandardMaterial>,
+    asset_server: &AssetServer,
+    model: &MenuPageModel<OotPage, OotAction>,
+) {
+    for node in &model.nodes {
+        match node {
+            MenuNode::Panel { rect, color, action } => spawn_panel(ui, materials, rect.x, rect.y, rect.w, rect.h, menu_color(*color), *action),
+            MenuNode::Text { x, y, size, text, align, color } => spawn_text(ui, materials, *x, *y, *size, text, menu_align(*align), menu_srgba(*color)),
+            MenuNode::Control { rect, kind, label, detail, icon, selected, important, action } => {
+                spawn_control(ui, materials, asset_server, *rect, *kind, label, detail.as_deref(), icon.as_deref(), *selected, *important, *action);
+            }
+        }
+    }
 }
 
 fn render_page_model(
@@ -1737,6 +1787,7 @@ fn animate_menu_ring(
     mut last_phase: Local<Option<MenuShellPhase>>,
     mut ring_query: Query<(&mut Transform, &mut Visibility), (With<MenuRing>, Without<LunexFaceRoot>)>,
     mut face_query: Query<(&PageFace, &mut Transform), (With<LunexFaceRoot>, Without<MenuRing>)>,
+    mut hud_query: Query<(&mut Transform, &mut Visibility), (With<HudOverlayRoot>, Without<MenuRing>, Without<LunexFaceRoot>)>,
 ) {
     let Ok((mut transform, mut visibility)) = ring_query.single_mut() else { return; };
     let delta = shortest_angle_delta(menu.current_angle, menu.target_angle);
@@ -1752,6 +1803,13 @@ fn animate_menu_ring(
         shell.openness = target;
     }
     *visibility = if shell.is_visible() { Visibility::Visible } else { Visibility::Hidden };
+    for (mut hud_transform, mut hud_visibility) in &mut hud_query {
+        *hud_visibility = if shell.is_visible() { Visibility::Visible } else { Visibility::Hidden };
+        let open = smoothstep(shell.openness.clamp(0.0, 1.0));
+        hud_transform.translation = Vec3::new(0.0, -0.10 * (1.0 - open), PAGE_RADIUS - HUD_Z_OFFSET_TOWARD_CAMERA);
+        hud_transform.scale = Vec3::splat(MIN_OPEN_SCALE + (1.0 - MIN_OPEN_SCALE) * open);
+        hud_transform.rotation = Quat::IDENTITY;
+    }
     let phase = shell.phase();
     if *last_phase != Some(phase) {
         effects.push(match phase {
@@ -1794,13 +1852,22 @@ impl HitRect {
 #[derive(Clone, Copy, Debug)]
 struct HitTarget { rect: HitRect, action: OotAction }
 
-fn active_hit_targets(demo: &OotDemo) -> Vec<HitTarget> {
-    let model = build_page_model(demo.page, demo, true);
+fn model_hit_targets(model: &MenuPageModel<OotPage, OotAction>) -> Vec<HitTarget> {
     model.nodes.iter().filter_map(|node| match node {
         MenuNode::Panel { rect, action: Some(action), .. } => Some(HitTarget { rect: HitRect { x: rect.x, y: rect.y, w: rect.w, h: rect.h }, action: *action }),
         MenuNode::Control { rect, action: Some(action), .. } => Some(HitTarget { rect: HitRect { x: rect.x, y: rect.y, w: rect.w, h: rect.h }, action: *action }),
         _ => None,
     }).collect()
+}
+
+fn active_page_hit_targets(demo: &OotDemo) -> Vec<HitTarget> {
+    let model = build_page_model(demo.page, demo, true);
+    model_hit_targets(&model)
+}
+
+fn active_hud_hit_targets(demo: &OotDemo) -> Vec<HitTarget> {
+    let model = build_pause_hud_model(demo);
+    model_hit_targets(&model)
 }
 
 fn pointer_hit_test(
@@ -1809,6 +1876,7 @@ fn pointer_hit_test(
     mut touches: MessageReader<TouchInput>,
     camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     face_query: Query<(&PageFace, &GlobalTransform)>,
+    hud_query: Query<&GlobalTransform, With<HudOverlayRoot>>,
     shell: Res<MenuShell>,
     mut demo: ResMut<OotDemo>,
     mut menu: ResMut<MenuAnimation>,
@@ -1818,10 +1886,13 @@ fn pointer_hit_test(
     let Ok(window) = windows.single() else { return; };
     let Ok((camera, camera_transform)) = camera_query.single() else { return; };
     let Some((_, face_transform)) = face_query.iter().find(|(face, _)| face.0 == demo.page) else { return; };
+    let hud_transform = hud_query.single().ok();
     let before_page = demo.page;
 
     if let Some(pos) = window.cursor_position() {
-        let hovered = hit_test_action(pos, &demo, camera, camera_transform, face_transform);
+        let hovered = hud_transform
+            .and_then(|hud| hit_test_targets(pos, &active_hud_hit_targets(&demo), camera, camera_transform, hud))
+            .or_else(|| hit_test_targets(pos, &active_page_hit_targets(&demo), camera, camera_transform, face_transform));
         if hovered != *last_mouse_hover {
             if let Some(action) = hovered { demo.hover(action); }
             *last_mouse_hover = hovered;
@@ -1836,9 +1907,10 @@ fn pointer_hit_test(
     }
     for touch in touches.read() {
         if touch.phase == TouchPhase::Ended {
-            if let Some(action) = hit_test_action(touch.position, &demo, camera, camera_transform, face_transform) {
-                demo.click(action);
-            }
+            let action = hud_transform
+                .and_then(|hud| hit_test_targets(touch.position, &active_hud_hit_targets(&demo), camera, camera_transform, hud))
+                .or_else(|| hit_test_targets(touch.position, &active_page_hit_targets(&demo), camera, camera_transform, face_transform));
+            if let Some(action) = action { demo.click(action); }
         }
     }
     if demo.page != before_page {
@@ -1846,9 +1918,9 @@ fn pointer_hit_test(
     }
 }
 
-fn hit_test_action(cursor: Vec2, demo: &OotDemo, camera: &Camera, camera_transform: &GlobalTransform, face_transform: &GlobalTransform) -> Option<OotAction> {
+fn hit_test_targets(cursor: Vec2, targets: &[HitTarget], camera: &Camera, camera_transform: &GlobalTransform, face_transform: &GlobalTransform) -> Option<OotAction> {
     let mut best: Option<(f32, OotAction)> = None;
-    for target in active_hit_targets(demo) {
+    for target in targets {
         let mut min = Vec2::splat(f32::INFINITY);
         let mut max = Vec2::splat(f32::NEG_INFINITY);
         let mut ok = true;
