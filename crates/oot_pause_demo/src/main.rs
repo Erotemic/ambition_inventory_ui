@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::f32::consts::{FRAC_PI_2, PI};
 use std::sync::Arc;
+use std::time::Instant;
 
 use bevy::anti_alias::fxaa::Fxaa;
 use bevy::asset::AssetPlugin;
@@ -64,6 +65,14 @@ const HUD_Z_OFFSET_TOWARD_CAMERA: f32 = 0.08;
 const HUD_SCREEN_X_FLIP: f32 = -1.0;
 const HUD_RENDER_LAYER: usize = 1;
 
+// Profiling toggles are intentionally environment variables so they work with
+// `cargo run`, `cargo flamegraph`, and CI without adding command-line parsing.
+// Examples:
+//   OOT_PROFILE_NO_HUD=1 cargo run -p oot_pause_demo --release
+//   OOT_PROFILE_NO_SIDE_FACES=1 cargo run -p oot_pause_demo --release
+//   OOT_PROFILE_NO_OIT=1 OOT_PROFILE_NO_FXAA=1 cargo flamegraph -p oot_pause_demo
+
+
 // OoT draws the pause pages through POLY_OPA_DISP, while the life/magic HUD
 // is drawn later through OVERLAY_DISP (see z_kaleido_scope*.c and
 // z_parameter.c::Magic_DrawMeter). Mirror that separation here with a dedicated
@@ -71,61 +80,116 @@ const HUD_RENDER_LAYER: usize = 1;
 
 
 fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins
-            .set(AssetPlugin {
-                // Bevy resolves asset paths relative to this demo crate by default
-                // when running `cargo run -p oot_pause_demo`. Keep the canonical
-                // generated icons at the workspace root and point the crate there.
-                file_path: "../../assets".to_string(),
-                ..default()
-            })
-            .set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Ambition Inventory UI - OoT Functional Pause Demo".to_string(),
-                resolution: (1180, 760).into(),
-                // Do not emulate OoT's low presentation cadence. Keep animations
-                // time-based, but let the demo present as fast as the host can render.
-                present_mode: PresentMode::AutoNoVsync,
-                ..default()
-            }),
+    let profile = OotProfileConfig::from_env();
+
+    let mut app = App::new();
+    app.add_plugins(DefaultPlugins
+        .set(AssetPlugin {
+            // Bevy resolves asset paths relative to this demo crate by default
+            // when running `cargo run -p oot_pause_demo`. Keep the canonical
+            // generated icons at the workspace root and point the crate there.
+            file_path: "../../assets".to_string(),
             ..default()
-        }))
-        .insert_resource(WinitSettings::continuous())
-        .add_plugins((UiLunexPlugins, MeshPickingPlugin))
-        .insert_resource(ClearColor(Color::srgb(0.012, 0.011, 0.018)))
-        .insert_resource(LoadFonts {
-            font_directories: vec![
-                "assets/fonts".to_string(),
-                "/usr/share/fonts".to_string(),
-                "/usr/local/share/fonts".to_string(),
-            ],
-            ..Default::default()
         })
-        .insert_resource(OotDemo::default())
-        .insert_resource(MenuAnimation::default())
-        .insert_resource(MenuShell::default_open())
-        .insert_resource(MenuShellEffects::default())
-        .insert_resource(FpsWindow::default())
-        .insert_resource(GamepadCStickState::default())
-        .insert_resource(GamepadNavStickState::default())
-        .insert_resource(MenuShellConfig {
-            open_close_style: MenuOpenCloseStyle::OotPageFold,
-            page_rotate_speed: 5.2,
-            open_close_speed: 8.0,
-            ..Default::default()
-        })
-        .add_systems(Startup, setup)
-        .add_systems(Update, menu_toggle_input)
-        .add_systems(Update, (keyboard_navigation, mouse_navigation, pointer_hit_test, gamepad_navigation))
-        .add_systems(Update, (
-            animate_equip_and_save,
-            rebuild_lunex_faces,
-            tag_hud_render_layers,
-            animate_menu_ring,
-            update_fps_debug_overlay,
-        ).chain())
-        .run();
+        .set(WindowPlugin {
+        primary_window: Some(Window {
+            title: "Ambition Inventory UI - OoT Functional Pause Demo".to_string(),
+            resolution: (1180, 760).into(),
+            // Do not emulate OoT's low presentation cadence. Keep animations
+            // time-based, but let the demo present as fast as the host can render.
+            present_mode: PresentMode::AutoNoVsync,
+            ..default()
+        }),
+        ..default()
+    }))
+    .insert_resource(WinitSettings::continuous())
+    .insert_resource(ClearColor(Color::srgb(0.012, 0.011, 0.018)))
+    .insert_resource(LoadFonts {
+        font_directories: vec![
+            "assets/fonts".to_string(),
+            "/usr/share/fonts".to_string(),
+            "/usr/local/share/fonts".to_string(),
+        ],
+        ..Default::default()
+    })
+    .insert_resource(profile)
+    .insert_resource(OotDemo::default())
+    .insert_resource(MenuAnimation::default())
+    .insert_resource(MenuShell::default_open())
+    .insert_resource(MenuShellEffects::default())
+    .insert_resource(FpsWindow::default())
+    .insert_resource(GamepadCStickState::default())
+    .insert_resource(GamepadNavStickState::default())
+    .insert_resource(MenuShellConfig {
+        open_close_style: MenuOpenCloseStyle::OotPageFold,
+        page_rotate_speed: 5.2,
+        open_close_speed: 8.0,
+        ..Default::default()
+    })
+    .add_systems(Startup, setup)
+    .add_systems(Update, menu_toggle_input)
+    .add_systems(Update, (keyboard_navigation, mouse_navigation, pointer_hit_test, gamepad_navigation))
+    .add_systems(Update, (
+        animate_equip_and_save,
+        rebuild_lunex_faces,
+        tag_hud_render_layers,
+        animate_menu_ring,
+        update_fps_debug_overlay,
+    ).chain());
+
+    if !profile.no_lunex {
+        app.add_plugins(UiLunexPlugins);
+    }
+    if !profile.no_picking {
+        app.add_plugins(MeshPickingPlugin);
+    }
+
+    app.run();
+}
+
+#[derive(Resource, Clone, Copy, Debug, Default)]
+struct OotProfileConfig {
+    no_lunex: bool,
+    no_hud: bool,
+    no_side_faces: bool,
+    no_picking: bool,
+    no_oit: bool,
+    no_fxaa: bool,
+    no_rebuilds: bool,
+    log_rebuilds: bool,
+}
+
+impl OotProfileConfig {
+    fn from_env() -> Self {
+        fn flag(name: &str) -> bool {
+            std::env::var(name)
+                .map(|value| value != "0" && !value.eq_ignore_ascii_case("false"))
+                .unwrap_or(false)
+        }
+        Self {
+            no_lunex: flag("OOT_PROFILE_NO_LUNEX"),
+            no_hud: flag("OOT_PROFILE_NO_HUD"),
+            no_side_faces: flag("OOT_PROFILE_NO_SIDE_FACES"),
+            no_picking: flag("OOT_PROFILE_NO_PICKING"),
+            no_oit: flag("OOT_PROFILE_NO_OIT"),
+            no_fxaa: flag("OOT_PROFILE_NO_FXAA"),
+            no_rebuilds: flag("OOT_PROFILE_NO_REBUILDS"),
+            log_rebuilds: flag("OOT_PROFILE_LOG_REBUILDS"),
+        }
+    }
+
+    fn labels(self) -> Vec<&'static str> {
+        let mut labels = Vec::new();
+        if self.no_lunex { labels.push("NO_LUNEX"); }
+        if self.no_hud { labels.push("NO_HUD"); }
+        if self.no_side_faces { labels.push("NO_SIDE_FACES"); }
+        if self.no_picking { labels.push("NO_PICKING"); }
+        if self.no_oit { labels.push("NO_OIT"); }
+        if self.no_fxaa { labels.push("NO_FXAA"); }
+        if self.no_rebuilds { labels.push("NO_REBUILDS"); }
+        if self.log_rebuilds { labels.push("LOG_REBUILDS"); }
+        labels
+    }
 }
 
 #[derive(Resource, Clone, Debug)]
@@ -843,35 +907,44 @@ fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
     demo: Res<OotDemo>,
+    profile: Res<OotProfileConfig>,
 ) {
     commands.spawn((
         DirectionalLight { illuminance: 2800.0, shadows_enabled: false, ..default() },
         Transform::from_xyz(1.5, 3.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
-    commands.spawn((
+    let mut cube_camera = commands.spawn((
         Name::new("OoT pause cube camera"),
         MainPauseCamera,
         Camera3d::default(),
         Camera { order: 0, ..default() },
         RenderLayers::layer(0),
-        OrderIndependentTransparencySettings::default(),
         Msaa::Off,
-        Fxaa::default(),
         Transform::from_translation(CAMERA_EYE).looking_at(CAMERA_LOOK, Vec3::Y),
     ));
-    commands.spawn((
-        Name::new("OoT pause HUD overlay camera"),
-        Camera3d::default(),
-        Camera {
-            order: 10,
-            clear_color: ClearColorConfig::None,
-            ..default()
-        },
-        Msaa::Off,
-        Fxaa::default(),
-        RenderLayers::layer(HUD_RENDER_LAYER),
-        Transform::from_translation(CAMERA_EYE).looking_at(CAMERA_LOOK, Vec3::Y),
-    ));
+    if !profile.no_oit {
+        cube_camera.insert(OrderIndependentTransparencySettings::default());
+    }
+    if !profile.no_fxaa {
+        cube_camera.insert(Fxaa::default());
+    }
+    if !profile.no_hud {
+        let mut hud_camera = commands.spawn((
+            Name::new("OoT pause HUD overlay camera"),
+            Camera3d::default(),
+            Camera {
+                order: 10,
+                clear_color: ClearColorConfig::None,
+                ..default()
+            },
+            Msaa::Off,
+            RenderLayers::layer(HUD_RENDER_LAYER),
+            Transform::from_translation(CAMERA_EYE).looking_at(CAMERA_LOOK, Vec3::Y),
+        ));
+        if !profile.no_fxaa {
+            hud_camera.insert(Fxaa::default());
+        }
+    }
     commands.spawn((
         FpsDebugText,
         Text::new("fps: collecting..."),
@@ -896,13 +969,16 @@ fn setup(
         ))
         .id();
     commands.entity(ring).with_children(|ring| {
-        spawn_all_faces(ring, &demo, &mut materials, &asset_server);
+        spawn_all_faces(ring, &demo, &profile, &mut materials, &asset_server);
     });
-    spawn_hud_overlay(&mut commands, &demo, &mut materials, &asset_server);
+    if !profile.no_hud {
+        spawn_hud_overlay(&mut commands, &demo, &mut materials, &asset_server);
+    }
 }
 
 fn update_fps_debug_overlay(
     time: Res<Time>,
+    profile: Res<OotProfileConfig>,
     mut fps: ResMut<FpsWindow>,
     mut text_query: Query<&mut Text, With<FpsDebugText>>,
 ) {
@@ -925,8 +1001,10 @@ fn update_fps_debug_overlay(
     }
     let mean = sum / fps.samples.len().max(1) as f32;
 
+    let labels = profile.labels();
+    let suffix = if labels.is_empty() { String::new() } else { format!("  [{}]", labels.join(",")) };
     for mut text in &mut text_query {
-        *text = Text::new(format!("FPS {mean:5.1}  min {min:5.1}  max {max:5.1}"));
+        *text = Text::new(format!("FPS {mean:5.1}  min {min:5.1}  max {max:5.1}{suffix}"));
     }
 }
 
@@ -935,6 +1013,7 @@ fn rebuild_lunex_faces(
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
     demo: Res<OotDemo>,
+    profile: Res<OotProfileConfig>,
     ring_query: Query<Entity, With<MenuRing>>,
     face_query: Query<(Entity, &PageFace), With<LunexFaceRoot>>,
     hud_query: Query<Entity, With<HudOverlayRoot>>,
@@ -944,25 +1023,53 @@ fn rebuild_lunex_faces(
     if *last_revision == Some(demo.revision) {
         return;
     }
+    if profile.no_rebuilds {
+        if profile.log_rebuilds {
+            info!("OOT_PROFILE_NO_REBUILDS active: skipping UI rebuild for revision {}", demo.revision);
+        }
+        *last_revision = Some(demo.revision);
+        *last_page = Some(demo.page);
+        return;
+    }
+
+    let started = Instant::now();
     let Ok(ring) = ring_query.single() else { return; };
     let page_changed = last_page.map(|p| p != demo.page).unwrap_or(true);
-    if page_changed {
+    let mut despawned_faces = 0usize;
+    if page_changed || profile.no_side_faces {
         for (entity, _) in &face_query {
             commands.entity(entity).despawn();
+            despawned_faces += 1;
         }
-        commands.entity(ring).with_children(|ring| spawn_all_faces(ring, &demo, &mut materials, &asset_server));
+        commands.entity(ring).with_children(|ring| spawn_all_faces(ring, &demo, &profile, &mut materials, &asset_server));
     } else {
         for (entity, face) in &face_query {
             if face.0 == demo.page {
                 commands.entity(entity).despawn();
+                despawned_faces += 1;
             }
         }
         commands.entity(ring).with_children(|ring| spawn_face(ring, demo.page, &demo, &mut materials, &asset_server));
     }
+    let mut despawned_hud = 0usize;
     for entity in &hud_query {
         commands.entity(entity).despawn();
+        despawned_hud += 1;
     }
-    spawn_hud_overlay(&mut commands, &demo, &mut materials, &asset_server);
+    if !profile.no_hud {
+        spawn_hud_overlay(&mut commands, &demo, &mut materials, &asset_server);
+    }
+    if profile.log_rebuilds {
+        info!(
+            "OoT UI rebuild rev={} page={:?} page_changed={} faces={} hud={} elapsed={:.3}ms",
+            demo.revision,
+            demo.page,
+            page_changed,
+            despawned_faces,
+            despawned_hud,
+            started.elapsed().as_secs_f64() * 1000.0
+        );
+    }
     *last_revision = Some(demo.revision);
     *last_page = Some(demo.page);
 }
@@ -995,13 +1102,20 @@ fn spawn_hud_overlay(
 
 fn tag_hud_render_layers(
     mut commands: Commands,
+    profile: Res<OotProfileConfig>,
+    demo: Res<OotDemo>,
     hud_roots: Query<Entity, With<HudOverlayRoot>>,
     children_query: Query<&Children>,
     unlayered: Query<Entity, Without<RenderLayers>>,
+    mut last_tag_revision: Local<Option<u64>>,
 ) {
+    if profile.no_hud || *last_tag_revision == Some(demo.revision) {
+        return;
+    }
     for root in &hud_roots {
         tag_hud_entity_recursive(root, &mut commands, &children_query, &unlayered);
     }
+    *last_tag_revision = Some(demo.revision);
 }
 
 fn tag_hud_entity_recursive(
@@ -1023,11 +1137,16 @@ fn tag_hud_entity_recursive(
 fn spawn_all_faces(
     ring: &mut ChildSpawnerCommands,
     demo: &OotDemo,
+    profile: &OotProfileConfig,
     materials: &mut Assets<StandardMaterial>,
     asset_server: &AssetServer,
 ) {
-    for page in OotDemo::pages() {
-        spawn_face(ring, page, demo, materials, asset_server);
+    if profile.no_side_faces {
+        spawn_face(ring, demo.page, demo, materials, asset_server);
+    } else {
+        for page in OotDemo::pages() {
+            spawn_face(ring, page, demo, materials, asset_server);
+        }
     }
 }
 
@@ -2482,6 +2601,7 @@ fn active_hud_hit_targets(demo: &OotDemo) -> Vec<HitTarget> {
 
 fn pointer_hit_test(
     windows: Query<&Window, With<PrimaryWindow>>,
+    profile: Res<OotProfileConfig>,
     buttons: Res<ButtonInput<MouseButton>>,
     mut touches: MessageReader<TouchInput>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainPauseCamera>>,
@@ -2500,9 +2620,13 @@ fn pointer_hit_test(
     let before_page = demo.page;
 
     if let Some(pos) = window.cursor_position() {
-        let hovered = hud_transform
-            .and_then(|hud| hit_test_targets(pos, &active_hud_hit_targets(&demo), camera, camera_transform, hud))
-            .or_else(|| hit_test_targets(pos, &active_page_hit_targets(&demo), camera, camera_transform, face_transform));
+        let hovered = if !profile.no_hud {
+            hud_transform
+                .and_then(|hud| hit_test_targets(pos, &active_hud_hit_targets(&demo), camera, camera_transform, hud))
+                .or_else(|| hit_test_targets(pos, &active_page_hit_targets(&demo), camera, camera_transform, face_transform))
+        } else {
+            hit_test_targets(pos, &active_page_hit_targets(&demo), camera, camera_transform, face_transform)
+        };
         if hovered != *last_mouse_hover {
             if let Some(action) = hovered { demo.hover(action); }
             *last_mouse_hover = hovered;
@@ -2517,9 +2641,13 @@ fn pointer_hit_test(
     }
     for touch in touches.read() {
         if touch.phase == TouchPhase::Ended {
-            let action = hud_transform
-                .and_then(|hud| hit_test_targets(touch.position, &active_hud_hit_targets(&demo), camera, camera_transform, hud))
-                .or_else(|| hit_test_targets(touch.position, &active_page_hit_targets(&demo), camera, camera_transform, face_transform));
+            let action = if !profile.no_hud {
+                hud_transform
+                    .and_then(|hud| hit_test_targets(touch.position, &active_hud_hit_targets(&demo), camera, camera_transform, hud))
+                    .or_else(|| hit_test_targets(touch.position, &active_page_hit_targets(&demo), camera, camera_transform, face_transform))
+            } else {
+                hit_test_targets(touch.position, &active_page_hit_targets(&demo), camera, camera_transform, face_transform)
+            };
             if let Some(action) = action { demo.click(action); }
         }
     }
