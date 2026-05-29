@@ -81,6 +81,9 @@ struct OotDemo {
     equipped_shield: usize,
     equipped_tunic: usize,
     equipped_boots: usize,
+    c_left: usize,
+    c_down: usize,
+    c_right: usize,
     status: String,
     revision: u64,
 }
@@ -94,7 +97,10 @@ impl Default for OotDemo {
             equipped_shield: 1,
             equipped_tunic: 0,
             equipped_boots: 0,
-            status: "Complete inventory demo. Use edge buttons or bumpers to rotate pages.".to_string(),
+            c_left: 9,
+            c_down: 7,
+            c_right: 3,
+            status: "Complete inventory demo. Pick an item, assign it to C, or press B to save.".to_string(),
             revision: 0,
         }
     }
@@ -127,12 +133,32 @@ impl OotDemo {
         }
     }
 
+    fn page_on_viewer_left(page: OotPage) -> OotPage {
+        // Observed inside-the-cube convention: the page physically on the left
+        // is the next index in the source page ring.
+        OotPage::from_index(page.index() + 1)
+    }
+
+    fn page_on_viewer_right(page: OotPage) -> OotPage {
+        // Observed inside-the-cube convention: the page physically on the right
+        // is the previous index in the source page ring.
+        OotPage::from_index(page.index() - 1)
+    }
+
+    fn turn_page(&mut self, direction: PageTurn) {
+        let target = match direction {
+            PageTurn::ViewerLeft => Self::page_on_viewer_left(self.page),
+            PageTurn::ViewerRight => Self::page_on_viewer_right(self.page),
+        };
+        self.goto_page(target);
+    }
+
     fn next_page(&mut self) {
-        self.goto_page(OotPage::from_index(self.page.index() + 1));
+        self.turn_page(PageTurn::ViewerRight);
     }
 
     fn previous_page(&mut self) {
-        self.goto_page(OotPage::from_index(self.page.index() - 1));
+        self.turn_page(PageTurn::ViewerLeft);
     }
 
     fn hover(&mut self, action: OotAction) {
@@ -144,15 +170,32 @@ impl OotDemo {
     }
 
     fn click(&mut self, action: OotAction) {
+        let previous_selected = self.selected;
         self.selected = action;
         match action {
-            // Inside-cube visual semantics: the left edge prompt / LB pulls the left face into view.
-            OotAction::EdgeLeft => self.next_page(),
-            // The right edge prompt / RB pulls the right face into view.
-            OotAction::EdgeRight => self.previous_page(),
+            // OoT-style edge prompts: left/right are physical directions from the player's view.
+            OotAction::EdgeLeft => self.turn_page(PageTurn::ViewerLeft),
+            OotAction::EdgeRight => self.turn_page(PageTurn::ViewerRight),
             OotAction::Item(idx) => {
                 let item = oot_items()[idx];
-                self.status = format!("{} selected. Assign to a C-button in a host game.", item.name);
+                self.status = format!("{} selected. Press Z/X/C or click a C-button to assign.", item.name);
+                self.bump();
+            }
+            OotAction::AssignC(button) => {
+                if let OotAction::Item(idx) = previous_selected {
+                    match button {
+                        CButton::Left => self.c_left = idx,
+                        CButton::Down => self.c_down = idx,
+                        CButton::Right => self.c_right = idx,
+                    }
+                    self.status = format!("Assigned {} to C-{}.", oot_items()[idx].name, button.label());
+                } else {
+                    self.status = "Select an item first, then assign it to a C-button.".to_string();
+                }
+                self.bump();
+            }
+            OotAction::Save => {
+                self.status = "Game saved. Return to play or continue editing C-button assignments.".to_string();
                 self.bump();
             }
             OotAction::EquipChoice { slot, choice } => {
@@ -183,6 +226,7 @@ impl OotDemo {
             }
         }
     }
+
 
     fn activate_selected(&mut self) {
         self.click(self.selected);
@@ -277,9 +321,40 @@ impl OotPage {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+enum CButton {
+    Left,
+    Down,
+    Right,
+}
+
+impl CButton {
+    fn label(self) -> &'static str {
+        match self {
+            CButton::Left => "Left",
+            CButton::Down => "Down",
+            CButton::Right => "Right",
+        }
+    }
+}
+
+/// Physical page-turn direction from the player's viewpoint inside the cube.
+///
+/// Do not replace these calls with raw `index() +/- 1` elsewhere. The page ring
+/// is stored in OoT source order, while the inside-facing Lunex room is mirrored
+/// relative to screen-space page motion. Keeping the convention here prevents
+/// LB/RB, edge buttons, keyboard, and mouse wheel from drifting out of sync.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+enum PageTurn {
+    ViewerLeft,
+    ViewerRight,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 enum OotAction {
     EdgeLeft,
     EdgeRight,
+    AssignC(CButton),
+    Save,
     Item(usize),
     EquipChoice { slot: usize, choice: usize },
     MapMarker(usize),
@@ -290,8 +365,10 @@ enum OotAction {
 impl OotAction {
     fn describe_hover(self, demo: &OotDemo) -> String {
         match self {
-            OotAction::EdgeLeft => format!("Rotate to {}.", OotPage::from_index(demo.page.index() + 1).label()),
-            OotAction::EdgeRight => format!("Rotate to {}.", OotPage::from_index(demo.page.index() - 1).label()),
+            OotAction::EdgeLeft => format!("Rotate left to {}.", OotDemo::page_on_viewer_left(demo.page).label()),
+            OotAction::EdgeRight => format!("Rotate right to {}.", OotDemo::page_on_viewer_right(demo.page).label()),
+            OotAction::AssignC(button) => format!("Assign selected item to C-{}.", button.label()),
+            OotAction::Save => "Save the game.".to_string(),
             OotAction::Item(idx) => oot_items()[idx].name.to_string(),
             OotAction::EquipChoice { slot, choice } => format!("{}: {}", equip_slots()[slot].name, equip_slots()[slot].choices[choice].name),
             OotAction::MapMarker(idx) => map_markers()[idx].name.to_string(),
@@ -558,7 +635,40 @@ fn add_items_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo,
             active_face.then_some(OotAction::Item(i)),
         );
     }
-    model.text(50.0, 79.0, 2.8, "Complete item grid: 6 x 4 like the pause inventory page", MenuTextAlign::Center, mc(Color::srgb(0.75, 0.83, 0.90)));
+    add_c_button_assignments(model, demo, active_face);
+}
+
+fn add_c_button_assignments(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, active_face: bool) {
+    model.panel(MenuRect::new(18.0, 76.0, 64.0, 8.0), mc(Color::srgba(0.015, 0.018, 0.030, 0.96)), None);
+    let assignments = [
+        (CButton::Left, "C<", demo.c_left, 24.0),
+        (CButton::Down, "Cv", demo.c_down, 38.0),
+        (CButton::Right, "C>", demo.c_right, 52.0),
+    ];
+    for (button, label, idx, x) in assignments {
+        let item = oot_items()[idx];
+        model.control_with_icon(
+            MenuRect::new(x, 76.8, 10.2, 6.5),
+            MenuControlKind::Action,
+            label,
+            Some(item.name.to_string()),
+            Some(item.icon),
+            demo.selected == OotAction::AssignC(button),
+            true,
+            active_face.then_some(OotAction::AssignC(button)),
+        );
+    }
+    model.control_with_icon(
+        MenuRect::new(66.0, 76.8, 10.2, 6.5),
+        MenuControlKind::Action,
+        "B",
+        Some("Save".to_string()),
+        None::<String>,
+        demo.selected == OotAction::Save,
+        true,
+        active_face.then_some(OotAction::Save),
+    );
+    model.text(50.0, 75.0, 2.2, "Select an item, then press Z / X / C to assign. Press B to save.", MenuTextAlign::Center, mc(Color::srgb(0.75, 0.83, 0.90)));
 }
 
 fn add_equipment_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, active_face: bool) {
@@ -1075,10 +1185,10 @@ fn keyboard_navigation(keys: Res<ButtonInput<KeyCode>>, shell: Res<MenuShell>, m
     }
     let before_page = demo.page;
     if keys.just_pressed(KeyCode::KeyQ) || keys.just_pressed(KeyCode::PageUp) {
-        demo.next_page();
+        demo.turn_page(PageTurn::ViewerLeft);
     }
     if keys.just_pressed(KeyCode::KeyE) || keys.just_pressed(KeyCode::PageDown) {
-        demo.previous_page();
+        demo.turn_page(PageTurn::ViewerRight);
     }
     if keys.just_pressed(KeyCode::ArrowLeft) || keys.just_pressed(KeyCode::KeyA) {
         demo.move_spatial(-1, 0);
@@ -1091,6 +1201,18 @@ fn keyboard_navigation(keys: Res<ButtonInput<KeyCode>>, shell: Res<MenuShell>, m
     }
     if keys.just_pressed(KeyCode::ArrowDown) || keys.just_pressed(KeyCode::KeyS) {
         demo.move_spatial(0, 1);
+    }
+    if keys.just_pressed(KeyCode::KeyZ) {
+        demo.click(OotAction::AssignC(CButton::Left));
+    }
+    if keys.just_pressed(KeyCode::KeyX) {
+        demo.click(OotAction::AssignC(CButton::Down));
+    }
+    if keys.just_pressed(KeyCode::KeyC) {
+        demo.click(OotAction::AssignC(CButton::Right));
+    }
+    if keys.just_pressed(KeyCode::KeyB) {
+        demo.click(OotAction::Save);
     }
     if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) {
         demo.activate_selected();
@@ -1107,12 +1229,10 @@ fn gamepad_navigation(gamepads: Query<&Gamepad>, shell: Res<MenuShell>, mut demo
     let before_page = demo.page;
     for gamepad in &gamepads {
         if gamepad.just_pressed(GamepadButton::LeftTrigger) || gamepad.just_pressed(GamepadButton::LeftTrigger2) {
-            // Match the visible edge prompts: LB pulls the left face into view.
-            demo.next_page();
+            demo.turn_page(PageTurn::ViewerLeft);
         }
         if gamepad.just_pressed(GamepadButton::RightTrigger) || gamepad.just_pressed(GamepadButton::RightTrigger2) {
-            // Match the visible edge prompts: RB pulls the right face into view.
-            demo.previous_page();
+            demo.turn_page(PageTurn::ViewerRight);
         }
         if gamepad.just_pressed(GamepadButton::DPadLeft) {
             demo.move_spatial(-1, 0);
@@ -1129,9 +1249,14 @@ fn gamepad_navigation(gamepads: Query<&Gamepad>, shell: Res<MenuShell>, mut demo
         if gamepad.just_pressed(GamepadButton::South) {
             demo.activate_selected();
         }
+        if gamepad.just_pressed(GamepadButton::West) {
+            demo.click(OotAction::AssignC(CButton::Left));
+        }
+        if gamepad.just_pressed(GamepadButton::North) {
+            demo.click(OotAction::AssignC(CButton::Down));
+        }
         if gamepad.just_pressed(GamepadButton::East) {
-            demo.status = "Back/cancel.".to_string();
-            demo.bump();
+            demo.click(OotAction::Save);
         }
     }
     if demo.page != before_page {
@@ -1146,9 +1271,9 @@ fn mouse_navigation(mut wheel: MessageReader<MouseWheel>, shell: Res<MenuShell>,
     let before_page = demo.page;
     for ev in wheel.read() {
         if ev.y > 0.0 {
-            demo.next_page();
+            demo.turn_page(PageTurn::ViewerRight);
         } else if ev.y < 0.0 {
-            demo.previous_page();
+            demo.turn_page(PageTurn::ViewerLeft);
         }
     }
     if demo.page != before_page {
@@ -1316,34 +1441,38 @@ fn shortest_angle_delta(current: f32, target: f32) -> f32 {
 #[derive(Clone, Copy)]
 struct OotItem { name: &'static str, _short: &'static str, icon: &'static str, detail: Option<&'static str>, important: bool }
 fn oot_items() -> [OotItem; 24] {
+    // Source-like inventory slot order from OoT's InventorySlot enum:
+    // row 1: sticks/nuts/bombs/bow/fire/din
+    // row 2: slingshot/ocarina/bombchu/hookshot/ice/farore
+    // row 3: boomerang/lens/beans/hammer/light/nayru
+    // row 4: bottle1..4/adult trade/child trade
     [
         OotItem { name: "Deku Stick", _short: "Stick", icon: "icons/oot/deku_stick.png", detail: Some("x99"), important: false },
         OotItem { name: "Deku Nut", _short: "Nut", icon: "icons/oot/deku_nut.png", detail: Some("x99"), important: false },
         OotItem { name: "Bomb", _short: "Bomb", icon: "icons/oot/bomb.png", detail: Some("x99"), important: false },
         OotItem { name: "Fairy Bow", _short: "Bow", icon: "icons/oot/bow.png", detail: Some("x50"), important: true },
         OotItem { name: "Fire Arrow", _short: "Fire", icon: "icons/oot/fire_arrow.png", detail: None, important: true },
-        OotItem { name: "Ice Arrow", _short: "Ice", icon: "icons/oot/ice_arrow.png", detail: None, important: true },
-        OotItem { name: "Light Arrow", _short: "Light", icon: "icons/oot/light_arrow.png", detail: None, important: true },
+        OotItem { name: "Din's Fire", _short: "Din", icon: "icons/oot/dins_fire.png", detail: None, important: true },
+        OotItem { name: "Fairy Slingshot", _short: "Shot", icon: "icons/oot/slingshot.png", detail: Some("x50"), important: true },
         OotItem { name: "Ocarina of Time", _short: "Ocarina", icon: "icons/oot/ocarina.png", detail: None, important: true },
         OotItem { name: "Bombchu", _short: "Bombchu", icon: "icons/oot/bombchu.png", detail: Some("x50"), important: false },
-        OotItem { name: "Hookshot", _short: "Hook", icon: "icons/oot/hookshot.png", detail: None, important: true },
         OotItem { name: "Longshot", _short: "Long", icon: "icons/oot/longshot.png", detail: None, important: true },
+        OotItem { name: "Ice Arrow", _short: "Ice", icon: "icons/oot/ice_arrow.png", detail: None, important: true },
+        OotItem { name: "Farore's Wind", _short: "Farore", icon: "icons/oot/farores_wind.png", detail: None, important: true },
         OotItem { name: "Boomerang", _short: "Boom", icon: "icons/oot/boomerang.png", detail: None, important: true },
         OotItem { name: "Lens of Truth", _short: "Lens", icon: "icons/oot/lens.png", detail: None, important: true },
         OotItem { name: "Magic Bean", _short: "Bean", icon: "icons/oot/beans.png", detail: Some("x10"), important: false },
         OotItem { name: "Megaton Hammer", _short: "Hammer", icon: "icons/oot/hammer.png", detail: None, important: true },
-        OotItem { name: "Bottle", _short: "Bottle", icon: "icons/oot/bottle.png", detail: Some("Fairy"), important: true },
-        OotItem { name: "Pocket Egg", _short: "Egg", icon: "icons/oot/egg.png", detail: None, important: false },
-        OotItem { name: "Letter", _short: "Letter", icon: "icons/oot/letter.png", detail: None, important: false },
-        OotItem { name: "Mask", _short: "Mask", icon: "icons/oot/mask.png", detail: None, important: false },
+        OotItem { name: "Light Arrow", _short: "Light", icon: "icons/oot/light_arrow.png", detail: None, important: true },
+        OotItem { name: "Nayru's Love", _short: "Nayru", icon: "icons/oot/nayrus_love.png", detail: None, important: true },
+        OotItem { name: "Bottle", _short: "Fairy", icon: "icons/oot/bottle.png", detail: Some("Fairy"), important: true },
+        OotItem { name: "Bottle", _short: "Milk", icon: "icons/oot/milk.png", detail: Some("Milk"), important: true },
+        OotItem { name: "Bottle", _short: "Fire", icon: "icons/oot/bottle.png", detail: Some("Fire"), important: true },
+        OotItem { name: "Bottle", _short: "Poe", icon: "icons/oot/poe.png", detail: Some("Poe"), important: true },
         OotItem { name: "Claim Check", _short: "Check", icon: "icons/oot/claim_check.png", detail: None, important: false },
-        OotItem { name: "Bottle", _short: "Blue", icon: "icons/oot/bottle.png", detail: Some("Fire"), important: true },
-        OotItem { name: "Bottle", _short: "Milk", icon: "icons/oot/bottle.png", detail: Some("Milk"), important: true },
-        OotItem { name: "Bottle", _short: "Poe", icon: "icons/oot/bottle.png", detail: Some("Poe"), important: true },
-        OotItem { name: "Empty Bottle", _short: "Empty", icon: "icons/oot/empty_bottle.png", detail: None, important: false },
+        OotItem { name: "Mask", _short: "Mask", icon: "icons/oot/mask.png", detail: None, important: false },
     ]
 }
-
 #[derive(Clone, Copy)]
 struct EquipChoice { name: &'static str, _short: &'static str, icon: &'static str }
 #[derive(Clone, Copy)]
