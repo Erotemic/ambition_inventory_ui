@@ -55,6 +55,7 @@ const B_BUTTON_RECT: MenuRect = MenuRect { x: 59.0, y: 9.5, w: 8.2, h: 8.2 };
 const A_BUTTON_RECT: MenuRect = MenuRect { x: 68.5, y: 8.7, w: 9.2, h: 9.2 };
 const START_BUTTON_RECT: MenuRect = MenuRect { x: 45.8, y: 6.4, w: 8.5, h: 5.8 };
 const HUD_Z_OFFSET_TOWARD_CAMERA: f32 = 0.08;
+const HUD_SCREEN_X_FLIP: f32 = -1.0;
 
 
 fn main() {
@@ -766,8 +767,11 @@ fn spawn_hud_overlay(
         Dimension::from((PAGE_W, PAGE_H)),
         // The HUD is not a child of MenuRing, so it does not rotate with the
         // cube or with the save-prompt flip. It sits just in front of the active
-        // face in camera-facing page coordinates where x grows visually right.
-        Transform::from_translation(Vec3::new(0.0, 0.0, PAGE_RADIUS - HUD_Z_OFFSET_TOWARD_CAMERA)),
+        // face. Because the pause camera is viewing the inside/back side of the
+        // page plane, raw local +X projects as visual-left; keep HUD models
+        // authored in normal screen coordinates and flip the overlay root once.
+        Transform::from_translation(Vec3::new(0.0, 0.0, PAGE_RADIUS - HUD_Z_OFFSET_TOWARD_CAMERA))
+            .with_scale(Vec3::new(HUD_SCREEN_X_FLIP, 1.0, 1.0)),
         Visibility::Visible,
     )).with_children(|ui| render_overlay_model(ui, materials, asset_server, &model));
 }
@@ -1807,7 +1811,8 @@ fn animate_menu_ring(
         *hud_visibility = if shell.is_visible() { Visibility::Visible } else { Visibility::Hidden };
         let open = smoothstep(shell.openness.clamp(0.0, 1.0));
         hud_transform.translation = Vec3::new(0.0, -0.10 * (1.0 - open), PAGE_RADIUS - HUD_Z_OFFSET_TOWARD_CAMERA);
-        hud_transform.scale = Vec3::splat(MIN_OPEN_SCALE + (1.0 - MIN_OPEN_SCALE) * open);
+        let hud_scale = MIN_OPEN_SCALE + (1.0 - MIN_OPEN_SCALE) * open;
+        hud_transform.scale = Vec3::new(HUD_SCREEN_X_FLIP * hud_scale, hud_scale, hud_scale);
         hud_transform.rotation = Quat::IDENTITY;
     }
     let phase = shell.phase();
