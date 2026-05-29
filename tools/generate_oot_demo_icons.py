@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, Tuple
 
 try:
-    from PIL import Image, ImageDraw, ImageFilter
+    from PIL import Image, ImageDraw, ImageFilter, ImageFont
 except ImportError as ex:  # pragma: no cover
     raise SystemExit("This generator requires Pillow. Install with: python3 -m pip install pillow") from ex
 
@@ -42,6 +42,34 @@ BROWN = (126, 77, 40, 255)
 PINK = (255, 153, 194, 255)
 BLACK = (12, 12, 16, 255)
 WHITE = (255, 255, 245, 255)
+
+
+_FONT_CACHE: dict[tuple[int, bool], ImageFont.ImageFont] = {}
+
+
+def font_px(px: int, *, bold: bool = True) -> ImageFont.ImageFont:
+    key = (px, bold)
+    if key not in _FONT_CACHE:
+        names = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/local/share/fonts/DejaVuSans-Bold.ttf" if bold else "/usr/local/share/fonts/DejaVuSans.ttf",
+        ]
+        for name in names:
+            try:
+                _FONT_CACHE[key] = ImageFont.truetype(name, px)
+                break
+            except OSError:
+                continue
+        else:
+            _FONT_CACHE[key] = ImageFont.load_default()
+    return _FONT_CACHE[key]
+
+
+def centered_text(draw: ImageDraw.ImageDraw, xy_pos: tuple[float, float], text: str, px: int, fill: Color, *, stroke: Color | None = None, bold: bool = True) -> None:
+    kwargs = {"font": font_px(px, bold=bold), "anchor": "mm", "fill": fill}
+    if stroke is not None:
+        kwargs.update({"stroke_width": max(1, px // 14), "stroke_fill": stroke})
+    draw.text(xy_pos, text, **kwargs)
 
 
 def rgba(hex_rgb: str, a: int = 255) -> Color:
@@ -302,11 +330,17 @@ def draw_marker(size: int) -> Image.Image:
     return finish(img, size)
 
 
-def draw_player(size: int) -> Image.Image:
+def draw_player(size: int, tunic: Color = GREEN, cap: Color | None = None) -> Image.Image:
+    if cap is None:
+        cap = tunic
     img, draw = icon_canvas(size); badge(draw, size, rgba("#112112", 130))
+    # Simple original Link-like preview silhouette. The tunic/cap color is the
+    # important state cue, and equipment badges are composed by the demo UI.
     ellipse(draw, size, (25, 10, 39, 24), rgba("#f0c58a"), outline=DARK, width=1)
-    polygon(draw, size, [(18, 22), (32, 13), (46, 22), (40, 54), (24, 54)], GREEN, outline=DARK)
-    polygon(draw, size, [(25, 11), (34, 4), (40, 15)], GREEN, outline=DARK)
+    polygon(draw, size, [(18, 22), (32, 13), (46, 22), (40, 54), (24, 54)], tunic, outline=DARK)
+    polygon(draw, size, [(25, 11), (34, 4), (40, 15)], cap, outline=DARK)
+    line(draw, size, [(23, 52), (18, 60)], rgba("#5f3a24"), 4)
+    line(draw, size, [(41, 52), (46, 60)], rgba("#5f3a24"), 4)
     return finish(img, size)
 
 
@@ -375,22 +409,31 @@ def draw_song_button(size: int, label: str, color: Color) -> Image.Image:
 
 def draw_hud_button(size: int, label: str, fill: Color, *, wide: bool = False) -> Image.Image:
     img, draw = icon_canvas(size)
-    # Draw an OoT-inspired glossy controller/HUD button. This is original
-    # placeholder art, not extracted game art.
+    # Solid OoT-inspired HUD buttons with the label baked directly onto the
+    # button. Avoid inner transparent cutouts / holes; assigned item icons may
+    # still be layered over C buttons in the demo.
     if wide:
-        box = (8, 17, 56, 47)
-        hi = (13, 20, 51, 31)
-        shadow = (10, 33, 54, 49)
+        box = (5, 15, 59, 49)
+        inner = (9, 19, 55, 45)
+        shadow = (8, 34, 58, 52)
         radius = 10
+        text_px = max(14, size * 4 // 6)
+        y = size * 4 * 0.50
     else:
-        box = (9, 9, 55, 55)
-        hi = (15, 13, 49, 31)
-        shadow = (13, 34, 51, 58)
-        radius = 18
-    draw.rounded_rectangle(xy(shadow, size), radius=stroke_width(size, radius), fill=(0, 0, 0, 90))
-    draw.rounded_rectangle(xy(box, size), radius=stroke_width(size, radius), fill=fill, outline=WHITE, width=stroke_width(size, 2.4))
-    draw.rounded_rectangle(xy(hi, size), radius=stroke_width(size, radius * 0.55), fill=(255, 255, 255, 55))
-    draw.text((size * 4 * 0.5, size * 4 * (0.48 if wide else 0.47)), label, fill=WHITE, anchor="mm")
+        box = (6, 6, 58, 58)
+        inner = (11, 11, 53, 53)
+        shadow = (10, 38, 58, 60)
+        radius = 24
+        text_px = max(22, size * 4 // 3)
+        y = size * 4 * 0.49
+    draw.rounded_rectangle(xy(shadow, size), radius=stroke_width(size, radius), fill=(0, 0, 0, 115))
+    draw.rounded_rectangle(xy(box, size), radius=stroke_width(size, radius), fill=fill, outline=rgba("#fff8ce"), width=stroke_width(size, 2.0))
+    # A small solid highlight keeps the button glossy but not hollow.
+    r, g, b, a = fill
+    highlight = (min(255, r + 42), min(255, g + 42), min(255, b + 42), a)
+    draw.rounded_rectangle(xy(inner, size), radius=stroke_width(size, radius * 0.72), fill=highlight)
+    draw.rounded_rectangle(xy((inner[0] + 1.5, inner[1] + 2.0, inner[2] - 1.5, inner[3] - 2.0), size), radius=stroke_width(size, radius * 0.62), fill=fill)
+    centered_text(draw, (size * 4 * 0.5, y), label, text_px, WHITE, stroke=BLACK, bold=True)
     return finish(img, size)
 
 def build_icons(size: int) -> Dict[str, Image.Image]:
@@ -434,6 +477,9 @@ def build_icons(size: int) -> Dict[str, Image.Image]:
         "hover_boots.png": draw_boots(size, rgba("#c9a35d"), wing=True),
         "map_marker.png": draw_marker(size),
         "player.png": draw_player(size),
+        "player_kokiri_tunic.png": draw_player(size, GREEN),
+        "player_goron_tunic.png": draw_player(size, RED),
+        "player_zora_tunic.png": draw_player(size, BLUE),
         "med_forest.png": draw_medallion(size, GREEN, "F"),
         "med_fire.png": draw_medallion(size, RED, "F"),
         "med_water.png": draw_medallion(size, BLUE, "W"),

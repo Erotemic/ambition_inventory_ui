@@ -299,6 +299,22 @@ impl OotDemo {
         let previous_selected = self.selected;
         if action.is_focusable_for(self) {
             self.selected = action;
+        } else {
+            match action {
+                OotAction::Item(idx) => {
+                    let item = oot_items()[idx];
+                    self.status = format!("{} is child-only and disabled for Adult Link.", item.name);
+                    self.bump();
+                    return;
+                }
+                OotAction::EquipChoice { slot, choice } => {
+                    let option = equip_slots()[slot].choices[choice];
+                    self.status = format!("{} is child-only and disabled for Adult Link.", option.name);
+                    self.bump();
+                    return;
+                }
+                _ => {}
+            }
         }
         match action {
             // OoT-style edge prompts: left/right are physical directions from the player's view.
@@ -532,6 +548,13 @@ impl OotDemo {
         let mut best: Option<(f32, OotAction)> = None;
         for target in targets {
             if target.action == current {
+                continue;
+            }
+            // Edge prompts are horizontal navigation sentinels. They should be
+            // reachable by moving left/right, but never steal focus from a
+            // normal grid item when the player presses up/down near the page
+            // edge. OoT keeps vertical item navigation inside the grid.
+            if dy != 0 && matches!(target.action, OotAction::EdgeLeft | OotAction::EdgeRight) {
                 continue;
             }
             let center = target.rect.center();
@@ -1271,7 +1294,7 @@ fn add_start_button_indicator(model: &mut MenuPageModel<OotPage, OotAction>) {
         START_BUTTON_RECT,
         MenuControlKind::Decoration,
         "",
-        Some("START".to_string()),
+        None,
         Some("icons/oot/hud_start.png"),
         false,
         true,
@@ -1285,7 +1308,7 @@ fn add_action_button_indicators(model: &mut MenuPageModel<OotPage, OotAction>, d
         B_BUTTON_RECT,
         MenuControlKind::Action,
         "",
-        Some(if in_prompt { "Back".to_string() } else { "Save".to_string() }),
+        None,
         Some("icons/oot/hud_button_b.png"),
         false,
         true,
@@ -1295,7 +1318,7 @@ fn add_action_button_indicators(model: &mut MenuPageModel<OotPage, OotAction>, d
         A_BUTTON_RECT,
         MenuControlKind::Action,
         "",
-        Some(if in_prompt { "Decide".to_string() } else { "Decide".to_string() }),
+        None,
         Some("icons/oot/hud_button_a.png"),
         false,
         true,
@@ -1343,17 +1366,18 @@ fn add_equipment_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotD
 
     // Closer to OoT's equipment page: an upgrades column at far left, a player preview
     // in the left-center, and the 3-choice equipment grid on the right.
-    model.panel(MenuRect::new(29.0, 25.0, 16.0, 43.0), mc(Color::srgba(0.045, 0.100, 0.065, 1.0)), None);
+    model.panel(MenuRect::new(29.0, 25.0, 16.0, 43.0), mc(equipment_preview_backing_color(demo)), None);
     model.control_with_icon(
-        MenuRect::new(30.7, 27.0, 12.6, 37.5),
+        MenuRect::new(30.7, 27.0, 12.6, 29.0),
         MenuControlKind::Decoration,
-        "LINK",
-        Some("preview".to_string()),
-        Some("icons/oot/player.png"),
+        "",
+        None,
+        Some(equipped_player_icon(demo)),
         false,
         false,
         None,
     );
+    add_equipped_preview_badges(model, demo);
 
     let upgrade_icons = [
         ("Quiver", "icons/oot/bow.png"),
@@ -1402,6 +1426,55 @@ fn add_equipment_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotD
         }
     }
     model.text(50.0, 78.7, 2.5, "Equipment grid: upgrades / player preview / 3 choices per slot", MenuTextAlign::Center, mc(Color::srgb(0.82, 0.72, 0.48)));
+}
+
+
+fn equipped_player_icon(demo: &OotDemo) -> &'static str {
+    match demo.equipped_tunic {
+        1 => "icons/oot/player_goron_tunic.png",
+        2 => "icons/oot/player_zora_tunic.png",
+        _ => "icons/oot/player_kokiri_tunic.png",
+    }
+}
+
+fn equipment_preview_backing_color(demo: &OotDemo) -> Color {
+    match demo.equipped_tunic {
+        1 => Color::srgba(0.115, 0.045, 0.030, 1.0),
+        2 => Color::srgba(0.030, 0.075, 0.125, 1.0),
+        _ => Color::srgba(0.045, 0.100, 0.065, 1.0),
+    }
+}
+
+fn add_equipped_preview_badges(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo) {
+    let slots = equip_slots();
+    let sword = slots[0].choices[demo.equipped_sword];
+    let shield = slots[1].choices[demo.equipped_shield];
+    let boots = slots[3].choices[demo.equipped_boots];
+    let badges = [
+        ("Sword", sword.icon, MenuRect::new(29.9, 57.8, 5.4, 5.4)),
+        ("Shield", shield.icon, MenuRect::new(34.3, 60.6, 5.4, 5.4)),
+        ("Boots", boots.icon, MenuRect::new(38.7, 57.8, 5.4, 5.4)),
+    ];
+    for (_label, icon, rect) in badges {
+        model.control_with_icon(
+            rect,
+            MenuControlKind::Decoration,
+            "",
+            None,
+            Some(icon),
+            false,
+            true,
+            None,
+        );
+    }
+    model.text(
+        37.0,
+        67.4,
+        1.55,
+        format!("{} / {} / {}", sword.name, shield.name, boots.name),
+        MenuTextAlign::Center,
+        mc(Color::srgb(0.83, 0.88, 0.74)),
+    );
 }
 
 fn add_map_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, active_face: bool) {
