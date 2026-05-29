@@ -166,6 +166,30 @@ impl OotDemo {
         self.revision = self.revision.wrapping_add(1);
     }
 
+    fn save_modal_active(&self) -> bool {
+        self.save_flip > 0.001 || self.save_flip_target > 0.001 || self.save_prompt_open
+    }
+
+    fn save_prompt_face_visible(&self) -> bool {
+        self.save_flip >= 0.5 || (self.save_prompt_open && self.save_flip_target >= 1.0)
+    }
+
+    fn choose_save_yes(&mut self) {
+        if self.selected != OotAction::SaveYes {
+            self.selected = OotAction::SaveYes;
+            self.status = "Save: YES".to_string();
+            self.bump();
+        }
+    }
+
+    fn choose_save_no(&mut self) {
+        if self.selected != OotAction::SaveNo {
+            self.selected = OotAction::SaveNo;
+            self.status = "Save: NO".to_string();
+            self.bump();
+        }
+    }
+
     fn pages() -> [OotPage; 4] {
         [OotPage::Items, OotPage::Map, OotPage::Quest, OotPage::Equipment]
     }
@@ -289,8 +313,12 @@ impl OotDemo {
         self.save_prompt_open = !self.save_prompt_open;
         self.save_flip_target = if self.save_prompt_open { 1.0 } else { 0.0 };
         self.status = if self.save_prompt_open {
+            self.selected = OotAction::SaveYes;
             "Save? Choose Yes or No. The active page flips around its horizontal center line.".to_string()
         } else {
+            if matches!(self.selected, OotAction::SaveYes | OotAction::SaveNo | OotAction::Save) {
+                self.selected = Self::default_action_for_page(self.page);
+            }
             "Returned to item selection.".to_string()
         };
         self.bump();
@@ -909,16 +937,30 @@ fn apply_oot_open_fold(page: OotPage, fold: f32, transform: &mut Transform) {
 }
 
 fn build_page_model(page: OotPage, demo: &OotDemo, active_face: bool) -> MenuPageModel<OotPage, OotAction> {
-    let mut model = MenuPageModel::new(page, page.label(), mc(page.face_color()));
-    add_edge_buttons(&mut model, page, active_face);
-    match page {
-        OotPage::Items => add_items_page(&mut model, demo, active_face),
-        OotPage::Equipment => add_equipment_page(&mut model, demo, active_face),
-        OotPage::Map => add_map_page(&mut model, demo, active_face),
-        OotPage::Quest => add_quest_page(&mut model, demo, active_face),
+    let prompt_face = active_face && demo.save_prompt_face_visible();
+    let background = if prompt_face { Color::srgba(0.010, 0.011, 0.026, 1.0) } else { page.face_color() };
+    let mut model = MenuPageModel::new(page, page.label(), mc(background));
+
+    // OoT does not draw the normal pause pane underneath the save page: the
+    // active page is pitched away, then the prompt page is drawn with the same
+    // transform. Keep that same single-surface invariant here. Rendering both
+    // was the cause of the visible normal menu plus flickering Yes/No options.
+    if prompt_face {
+        add_save_prompt_panel(&mut model, demo);
+        return model;
     }
-    add_save_prompt_panel(&mut model, demo);
-    add_status_band(&mut model, demo);
+
+    let page_actions_enabled = active_face && !demo.save_modal_active();
+    add_edge_buttons(&mut model, page, page_actions_enabled);
+    match page {
+        OotPage::Items => add_items_page(&mut model, demo, page_actions_enabled),
+        OotPage::Equipment => add_equipment_page(&mut model, demo, page_actions_enabled),
+        OotPage::Map => add_map_page(&mut model, demo, page_actions_enabled),
+        OotPage::Quest => add_quest_page(&mut model, demo, page_actions_enabled),
+    }
+    if !demo.save_modal_active() {
+        add_status_band(&mut model, demo);
+    }
     model
 }
 
@@ -979,15 +1021,14 @@ fn add_items_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo,
 }
 
 fn add_save_prompt_panel(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo) {
-    // The save prompt belongs to the active pause pane and participates in the
-    // horizontal flip animation. Gameplay HUD widgets remain separate and do not
-    // rotate with this prompt.
-    if demo.save_flip > 0.5 || demo.save_prompt_open {
-        model.panel(MenuRect::new(25.0, 31.5, 50.0, 28.0), mc(Color::srgba(0.015, 0.016, 0.035, 0.98)), None);
-        model.text(50.0, 39.0, 3.2, "Would you like to save?", MenuTextAlign::Center, mc(Color::srgb(0.94, 0.86, 0.55)));
-        model.control_with_icon(MenuRect::new(35.0, 47.0, 12.0, 7.5), MenuControlKind::Action, "Yes", None, None::<String>, demo.selected == OotAction::SaveYes, true, Some(OotAction::SaveYes));
-        model.control_with_icon(MenuRect::new(53.0, 47.0, 12.0, 7.5), MenuControlKind::Action, "No", None, None::<String>, demo.selected == OotAction::SaveNo, true, Some(OotAction::SaveNo));
-    }
+    // Prompt contents are the only contents on the active face after the flip
+    // midpoint. Keep this opaque and sparse to avoid z-fighting with the normal
+    // inventory/equipment/map/quest controls.
+    model.panel(MenuRect::new(18.0, 24.0, 64.0, 46.0), mc(Color::srgba(0.006, 0.008, 0.025, 1.0)), None);
+    model.panel(MenuRect::new(24.0, 31.0, 52.0, 29.0), mc(Color::srgba(0.022, 0.026, 0.060, 1.0)), None);
+    model.text(50.0, 38.5, 3.2, "Would you like to save?", MenuTextAlign::Center, mc(Color::srgb(0.94, 0.86, 0.55)));
+    model.control_with_icon(MenuRect::new(34.0, 47.0, 13.5, 7.8), MenuControlKind::Action, "YES", None, None::<String>, demo.selected == OotAction::SaveYes, true, Some(OotAction::SaveYes));
+    model.control_with_icon(MenuRect::new(52.5, 47.0, 13.5, 7.8), MenuControlKind::Action, "NO", None, None::<String>, demo.selected == OotAction::SaveNo, true, Some(OotAction::SaveNo));
 }
 
 fn add_pause_hud_overlay(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, _active_face: bool) {
@@ -996,7 +1037,7 @@ fn add_pause_hud_overlay(model: &mut MenuPageModel<OotPage, OotAction>, demo: &O
     // area must not become keyboard/gamepad cursor targets.
     add_health_and_magic(model);
     add_start_button_indicator(model);
-    add_action_button_indicators(model);
+    add_action_button_indicators(model, demo);
     add_c_button_assignments(model, demo);
 
     if let Some(anim) = demo.equip_anim {
@@ -1039,26 +1080,27 @@ fn add_start_button_indicator(model: &mut MenuPageModel<OotPage, OotAction>) {
     );
 }
 
-fn add_action_button_indicators(model: &mut MenuPageModel<OotPage, OotAction>) {
+fn add_action_button_indicators(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo) {
+    let in_prompt = demo.save_modal_active();
     model.control_with_icon(
         B_BUTTON_RECT,
         MenuControlKind::Action,
         "",
-        Some("Save".to_string()),
+        Some(if in_prompt { "Back".to_string() } else { "Save".to_string() }),
         Some("icons/oot/hud_button_b.png"),
         false,
         true,
-        Some(OotAction::Save),
+        Some(if in_prompt { OotAction::SaveNo } else { OotAction::Save }),
     );
     model.control_with_icon(
         A_BUTTON_RECT,
         MenuControlKind::Action,
         "",
-        Some("Decide".to_string()),
+        Some(if in_prompt { "Decide".to_string() } else { "Decide".to_string() }),
         Some("icons/oot/hud_button_a.png"),
         false,
         true,
-        None,
+        if in_prompt { Some(demo.selected) } else { None },
     );
 }
 
@@ -1081,7 +1123,7 @@ fn add_c_button_assignments(model: &mut MenuPageModel<OotPage, OotAction>, demo:
             Some("icons/oot/hud_button_c.png"),
             false,
             true,
-            Some(OotAction::AssignC(button)),
+            (!demo.save_modal_active()).then_some(OotAction::AssignC(button)),
         );
         let inset = rect.w * 0.24;
         model.control_with_icon(
@@ -1773,16 +1815,44 @@ fn menu_align(align: MenuTextAlign) -> TextAlign {
     }
 }
 
-fn menu_toggle_input(keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&Gamepad>, mut shell: ResMut<MenuShell>) {
-    let keyboard = keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::KeyP);
-    let gamepad = gamepads.iter().any(|g| g.just_pressed(GamepadButton::Start));
-    if keyboard || gamepad {
+fn menu_toggle_input(keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&Gamepad>, mut shell: ResMut<MenuShell>, mut demo: ResMut<OotDemo>) {
+    let keyboard_pause = keys.just_pressed(KeyCode::KeyP);
+    let keyboard_cancel = keys.just_pressed(KeyCode::Escape);
+    let gamepad_start = gamepads.iter().any(|g| g.just_pressed(GamepadButton::Start));
+    if (keyboard_cancel || gamepad_start) && demo.save_modal_active() {
+        if demo.save_prompt_open {
+            demo.toggle_save_prompt();
+        }
+        return;
+    }
+    if keyboard_pause || keyboard_cancel || gamepad_start {
         shell.toggle();
     }
 }
 
 fn keyboard_navigation(keys: Res<ButtonInput<KeyCode>>, shell: Res<MenuShell>, mut demo: ResMut<OotDemo>, mut menu: ResMut<MenuAnimation>) {
     if !shell.is_interactive() {
+        return;
+    }
+    if demo.save_modal_active() {
+        if keys.just_pressed(KeyCode::ArrowLeft) || keys.just_pressed(KeyCode::KeyA) {
+            demo.choose_save_yes();
+        }
+        if keys.just_pressed(KeyCode::ArrowRight) || keys.just_pressed(KeyCode::KeyD) {
+            demo.choose_save_no();
+        }
+        if keys.just_pressed(KeyCode::KeyB) || keys.just_pressed(KeyCode::Escape) {
+            if demo.save_prompt_open {
+                demo.toggle_save_prompt();
+            }
+        }
+        if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) {
+            match demo.selected {
+                OotAction::SaveYes => demo.click(OotAction::SaveYes),
+                OotAction::SaveNo => demo.click(OotAction::SaveNo),
+                _ => demo.choose_save_yes(),
+            }
+        }
         return;
     }
     let before_page = demo.page;
@@ -1835,6 +1905,41 @@ fn gamepad_navigation(
     if !shell.is_interactive() {
         c_stick.active = None;
         nav_stick.active = None;
+        return;
+    }
+    if demo.save_modal_active() {
+        let mut any_nav_stick_direction = None;
+        for gamepad in &gamepads {
+            if gamepad.just_pressed(GamepadButton::DPadLeft) {
+                demo.choose_save_yes();
+            }
+            if gamepad.just_pressed(GamepadButton::DPadRight) {
+                demo.choose_save_no();
+            }
+            if gamepad.just_pressed(GamepadButton::South) {
+                match demo.selected {
+                    OotAction::SaveYes => demo.click(OotAction::SaveYes),
+                    OotAction::SaveNo => demo.click(OotAction::SaveNo),
+                    _ => demo.choose_save_yes(),
+                }
+            }
+            if gamepad.just_pressed(GamepadButton::East) || gamepad.just_pressed(GamepadButton::Start) {
+                if demo.save_prompt_open {
+                    demo.toggle_save_prompt();
+                }
+            }
+            let nav_x = gamepad.get(GamepadAxis::LeftStickX).unwrap_or(0.0);
+            let nav_y = gamepad.get(GamepadAxis::LeftStickY).unwrap_or(0.0);
+            any_nav_stick_direction = any_nav_stick_direction.or_else(|| nav_direction_from_left_stick(nav_x, nav_y));
+        }
+        if any_nav_stick_direction != nav_stick.active {
+            if let Some((dx, _dy)) = any_nav_stick_direction {
+                if dx < 0 { demo.choose_save_yes(); }
+                if dx > 0 { demo.choose_save_no(); }
+            }
+            nav_stick.active = any_nav_stick_direction;
+        }
+        c_stick.active = None;
         return;
     }
     let before_page = demo.page;
@@ -2003,6 +2108,10 @@ fn apply_save_flip(face: OotPage, active: OotPage, amount: f32, transform: &mut 
 
 fn mouse_navigation(mut wheel: MessageReader<MouseWheel>, shell: Res<MenuShell>, mut demo: ResMut<OotDemo>, mut menu: ResMut<MenuAnimation>) {
     if !shell.is_interactive() {
+        return;
+    }
+    if demo.save_modal_active() {
+        for _ in wheel.read() {}
         return;
     }
     let before_page = demo.page;
