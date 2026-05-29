@@ -186,7 +186,7 @@ impl OotDemo {
             OotAction::EdgeRight => self.turn_page(PageTurn::ViewerRight),
             OotAction::Item(idx) => {
                 let item = oot_items()[idx];
-                self.status = format!("{} selected. Press Z/X/C or click a C-button to assign.", item.name);
+                self.status = format!("{} selected. Press Z/X/C to assign.", item.name);
                 self.bump();
             }
             OotAction::AssignC(button) => {
@@ -295,6 +295,24 @@ impl OotDemo {
         self.status = format!("Assigned {} to C-{}.", oot_items()[item_idx].name, button.label());
         self.equip_anim = None;
         self.bump();
+    }
+
+    fn assign_selected_item_to_c_button(&mut self, button: CButton) {
+        if let OotAction::Item(idx) = self.selected {
+            // C-buttons are status indicators in the pause HUD, not focusable
+            // controls. Keep the cursor on the inventory item while the equip
+            // animation runs toward the requested C slot.
+            self.start_c_button_equip(idx, button);
+        } else {
+            self.status = "Move the cursor to an inventory item before assigning it to a C-button.".to_string();
+            self.bump();
+        }
+    }
+
+    fn press_b_button(&mut self) {
+        // The visual B button is also an indicator. Keyboard/gamepad B opens
+        // the save prompt without moving focus to the B button.
+        self.toggle_save_prompt();
     }
 
     fn activate_selected(&mut self) {
@@ -770,7 +788,7 @@ fn add_c_button_assignments(model: &mut MenuPageModel<OotPage, OotAction>, demo:
         (CButton::Down, "Cv", demo.c_down, 38.0),
         (CButton::Right, "C>", demo.c_right, 52.0),
     ];
-    for (button, label, idx, x) in assignments {
+    for (_button, label, idx, x) in assignments {
         let item = oot_items()[idx];
         model.control_with_icon(
             MenuRect::new(x, 76.8, 10.2, 6.5),
@@ -778,9 +796,9 @@ fn add_c_button_assignments(model: &mut MenuPageModel<OotPage, OotAction>, demo:
             label,
             Some(item.name.to_string()),
             Some(item.icon),
-            demo.selected == OotAction::AssignC(button),
+            false,
             true,
-            active_face.then_some(OotAction::AssignC(button)),
+            None,
         );
     }
     model.control_with_icon(
@@ -789,9 +807,9 @@ fn add_c_button_assignments(model: &mut MenuPageModel<OotPage, OotAction>, demo:
         "B",
         Some("Save".to_string()),
         None::<String>,
-        demo.selected == OotAction::Save,
+        false,
         true,
-        active_face.then_some(OotAction::Save),
+        None,
     );
     if demo.save_flip > 0.5 || demo.save_prompt_open {
         model.panel(MenuRect::new(25.0, 31.5, 50.0, 28.0), mc(Color::srgba(0.015, 0.016, 0.035, 0.98)), None);
@@ -802,7 +820,7 @@ fn add_c_button_assignments(model: &mut MenuPageModel<OotPage, OotAction>, demo:
     if let Some(anim) = demo.equip_anim {
         add_equip_anim_visual(model, anim);
     }
-    model.text(50.0, 75.0, 2.2, "Select an item, then press Z / X / C to assign. Press B to save.", MenuTextAlign::Center, mc(Color::srgb(0.75, 0.83, 0.90)));
+    model.text(50.0, 75.0, 2.2, "Select an item, then press Z / X / C to assign. Press B for save.", MenuTextAlign::Center, mc(Color::srgb(0.75, 0.83, 0.90)));
 }
 
 fn add_equipment_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, active_face: bool) {
@@ -1337,16 +1355,16 @@ fn keyboard_navigation(keys: Res<ButtonInput<KeyCode>>, shell: Res<MenuShell>, m
         demo.move_spatial(0, 1);
     }
     if keys.just_pressed(KeyCode::KeyZ) {
-        demo.click(OotAction::AssignC(CButton::Left));
+        demo.assign_selected_item_to_c_button(CButton::Left);
     }
     if keys.just_pressed(KeyCode::KeyX) {
-        demo.click(OotAction::AssignC(CButton::Down));
+        demo.assign_selected_item_to_c_button(CButton::Down);
     }
     if keys.just_pressed(KeyCode::KeyC) {
-        demo.click(OotAction::AssignC(CButton::Right));
+        demo.assign_selected_item_to_c_button(CButton::Right);
     }
     if keys.just_pressed(KeyCode::KeyB) {
-        demo.click(OotAction::Save);
+        demo.press_b_button();
     }
     if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space) {
         demo.activate_selected();
@@ -1384,13 +1402,13 @@ fn gamepad_navigation(gamepads: Query<&Gamepad>, shell: Res<MenuShell>, mut demo
             demo.activate_selected();
         }
         if gamepad.just_pressed(GamepadButton::West) {
-            demo.click(OotAction::AssignC(CButton::Left));
+            demo.assign_selected_item_to_c_button(CButton::Left);
         }
         if gamepad.just_pressed(GamepadButton::North) {
-            demo.click(OotAction::AssignC(CButton::Down));
+            demo.assign_selected_item_to_c_button(CButton::Down);
         }
         if gamepad.just_pressed(GamepadButton::East) {
-            demo.click(OotAction::Save);
+            demo.press_b_button();
         }
     }
     if demo.page != before_page {
