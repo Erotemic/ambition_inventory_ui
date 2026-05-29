@@ -9,6 +9,7 @@ use bevy::input::gamepad::GamepadAxis;
 use bevy::input::mouse::MouseWheel;
 use bevy::input::touch::{TouchInput, TouchPhase};
 use bevy::prelude::*;
+use bevy::camera::{ClearColorConfig, visibility::RenderLayers};
 use bevy::window::{PresentMode, PrimaryWindow, SystemCursorIcon};
 use bevy::winit::WinitSettings;
 use bevy_lunex::prelude::*;
@@ -56,6 +57,12 @@ const A_BUTTON_RECT: MenuRect = MenuRect { x: 68.5, y: 8.7, w: 9.2, h: 9.2 };
 const START_BUTTON_RECT: MenuRect = MenuRect { x: 45.8, y: 6.4, w: 8.5, h: 5.8 };
 const HUD_Z_OFFSET_TOWARD_CAMERA: f32 = 0.08;
 const HUD_SCREEN_X_FLIP: f32 = -1.0;
+const HUD_RENDER_LAYER: usize = 1;
+
+// OoT draws the pause pages through POLY_OPA_DISP, while the life/magic HUD
+// is drawn later through OVERLAY_DISP (see z_kaleido_scope*.c and
+// z_parameter.c::Magic_DrawMeter). Mirror that separation here with a dedicated
+// HUD camera/render layer so cube faces can never depth-clip the HUD.
 
 
 fn main() {
@@ -106,7 +113,7 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(Update, menu_toggle_input)
         .add_systems(Update, (keyboard_navigation, mouse_navigation, pointer_hit_test, gamepad_navigation))
-        .add_systems(Update, (animate_equip_and_save, animate_menu_ring, rebuild_lunex_faces, update_fps_debug_overlay))
+        .add_systems(Update, (animate_equip_and_save, animate_menu_ring, rebuild_lunex_faces, tag_hud_render_layers, update_fps_debug_overlay).chain())
         .run();
 }
 
@@ -620,6 +627,8 @@ struct PageFace(OotPage);
 struct FpsDebugText;
 #[derive(Component)]
 struct HudOverlayRoot;
+#[derive(Component)]
+struct MainPauseCamera;
 
 #[derive(Resource, Debug)]
 struct FpsWindow {
@@ -652,10 +661,26 @@ fn setup(
         Transform::from_xyz(1.5, 3.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
     commands.spawn((
+        Name::new("OoT pause cube camera"),
+        MainPauseCamera,
         Camera3d::default(),
+        Camera { order: 0, ..default() },
         OrderIndependentTransparencySettings::default(),
         Msaa::Off,
         Fxaa::default(),
+        Transform::from_translation(CAMERA_EYE).looking_at(CAMERA_LOOK, Vec3::Y),
+    ));
+    commands.spawn((
+        Name::new("OoT pause HUD overlay camera"),
+        Camera3d::default(),
+        Camera {
+            order: 10,
+            clear_color: ClearColorConfig::None,
+            ..default()
+        },
+        Msaa::Off,
+        Fxaa::default(),
+        RenderLayers::layer(HUD_RENDER_LAYER),
         Transform::from_translation(CAMERA_EYE).looking_at(CAMERA_LOOK, Vec3::Y),
     ));
     commands.spawn((
@@ -773,7 +798,36 @@ fn spawn_hud_overlay(
         Transform::from_translation(Vec3::new(0.0, 0.0, PAGE_RADIUS - HUD_Z_OFFSET_TOWARD_CAMERA))
             .with_scale(Vec3::new(HUD_SCREEN_X_FLIP, 1.0, 1.0)),
         Visibility::Visible,
+        RenderLayers::layer(HUD_RENDER_LAYER),
     )).with_children(|ui| render_overlay_model(ui, materials, asset_server, &model));
+}
+
+
+fn tag_hud_render_layers(
+    mut commands: Commands,
+    hud_roots: Query<Entity, With<HudOverlayRoot>>,
+    children_query: Query<&Children>,
+    unlayered: Query<Entity, Without<RenderLayers>>,
+) {
+    for root in &hud_roots {
+        tag_hud_entity_recursive(root, &mut commands, &children_query, &unlayered);
+    }
+}
+
+fn tag_hud_entity_recursive(
+    entity: Entity,
+    commands: &mut Commands,
+    children_query: &Query<&Children>,
+    unlayered: &Query<Entity, Without<RenderLayers>>,
+) {
+    if unlayered.get(entity).is_ok() {
+        commands.entity(entity).insert(RenderLayers::layer(HUD_RENDER_LAYER));
+    }
+    if let Ok(children) = children_query.get(entity) {
+        for child in children.iter() {
+            tag_hud_entity_recursive(child, commands, children_query, unlayered);
+        }
+    }
 }
 
 fn spawn_all_faces(
@@ -1438,7 +1492,7 @@ fn spawn_panel(
     let mut entity = ui.spawn((
         Name::new("OoT panel"),
         UiLayout::window().x(Rl(x)).y(Rl(y)).width(Rl(w)).height(Rh(h)).anchor(Anchor::TOP_LEFT).pack(),
-        UiDepth::Set(panel_depth(w, h, action.is_some())),
+        UiDepth::Set(panel_depth_at(x, y, w, h, action.is_some())),
         UiMeshPlane3d,
         MeshMaterial3d(material),
     ));
@@ -1499,12 +1553,18 @@ fn hover_panel_color() -> Color {
 }
 
 fn panel_depth(w: f32, h: f32, actionable: bool) -> f32 {
+    panel_depth_at(0.0, 0.0, w, h, actionable)
+}
+
+fn panel_depth_at(x: f32, y: f32, w: f32, h: f32, actionable: bool) -> f32 {
     if actionable {
         return DEPTH_ACTION;
     }
     let area = w * h;
-    // Avoid z-fighting between nested non-action panels, especially on the map face.
-    if area > 8_000.0 {
+    // Avoid z-fighting between nested non-action panels. Small HUD bars are
+    // intentionally biased by position/size so the magic fill and backing never
+    // occupy the exact same plane.
+    let base = if area > 8_000.0 {
         DEPTH_BACKGROUND
     } else if area > 3_000.0 {
         DEPTH_LARGE_PANEL
@@ -1514,7 +1574,9 @@ fn panel_depth(w: f32, h: f32, actionable: bool) -> f32 {
         DEPTH_CARD
     } else {
         DEPTH_CARD - 0.05
-    }
+    };
+    let stable_bias = ((x * 13.0 + y * 17.0 + w * 19.0 + h * 23.0).round() % 97.0) * 0.00005;
+    base - stable_bias
 }
 
 fn mc(color: Color) -> MenuColor {
@@ -1879,7 +1941,7 @@ fn pointer_hit_test(
     windows: Query<&Window, With<PrimaryWindow>>,
     buttons: Res<ButtonInput<MouseButton>>,
     mut touches: MessageReader<TouchInput>,
-    camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<MainPauseCamera>>,
     face_query: Query<(&PageFace, &GlobalTransform)>,
     hud_query: Query<&GlobalTransform, With<HudOverlayRoot>>,
     shell: Res<MenuShell>,
