@@ -372,6 +372,27 @@ def draw_song_button(size: int, label: str, color: Color) -> Image.Image:
     return finish(img, size)
 
 
+
+def draw_hud_button(size: int, label: str, fill: Color, *, wide: bool = False) -> Image.Image:
+    img, draw = icon_canvas(size)
+    # Draw an OoT-inspired glossy controller/HUD button. This is original
+    # placeholder art, not extracted game art.
+    if wide:
+        box = (8, 17, 56, 47)
+        hi = (13, 20, 51, 31)
+        shadow = (10, 33, 54, 49)
+        radius = 10
+    else:
+        box = (9, 9, 55, 55)
+        hi = (15, 13, 49, 31)
+        shadow = (13, 34, 51, 58)
+        radius = 18
+    draw.rounded_rectangle(xy(shadow, size), radius=stroke_width(size, radius), fill=(0, 0, 0, 90))
+    draw.rounded_rectangle(xy(box, size), radius=stroke_width(size, radius), fill=fill, outline=WHITE, width=stroke_width(size, 2.4))
+    draw.rounded_rectangle(xy(hi, size), radius=stroke_width(size, radius * 0.55), fill=(255, 255, 255, 55))
+    draw.text((size * 4 * 0.5, size * 4 * (0.48 if wide else 0.47)), label, fill=WHITE, anchor="mm")
+    return finish(img, size)
+
 def build_icons(size: int) -> Dict[str, Image.Image]:
     icons: Dict[str, Image.Image] = {
         "edge_left.png": draw_arrow_icon(size, "left"),
@@ -428,6 +449,10 @@ def build_icons(size: int) -> Dict[str, Image.Image]:
         "heart_piece.png": draw_heart(size),
         "song_button_a.png": draw_song_button(size, "A", BLUE),
         "song_button_c.png": draw_song_button(size, "C", YELLOW),
+        "hud_start.png": draw_hud_button(size, "START", RED, wide=True),
+        "hud_button_a.png": draw_hud_button(size, "A", BLUE),
+        "hud_button_b.png": draw_hud_button(size, "B", GREEN),
+        "hud_button_c.png": draw_hud_button(size, "C", YELLOW),
     }
     song_specs = {
         "song_minuet.png": (GREEN, "M"),

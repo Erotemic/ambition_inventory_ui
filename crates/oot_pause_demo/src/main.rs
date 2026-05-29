@@ -39,6 +39,9 @@ const DEPTH_ACTION: f32 = -0.46;
 const DEPTH_EDGE: f32 = -0.82;
 const DEPTH_ICON: f32 = -0.74;
 const DEPTH_TEXT_TOP: f32 = -0.90;
+const DEPTH_HUD_PANEL: f32 = -1.35;
+const DEPTH_HUD_ICON: f32 = -1.55;
+const DEPTH_HUD_TEXT: f32 = -1.70;
 const FONT_FAMILY: &str = "DejaVu Sans";
 const FPS_WINDOW_SAMPLES: usize = 120;
 
@@ -665,6 +668,7 @@ fn setup(
         MainPauseCamera,
         Camera3d::default(),
         Camera { order: 0, ..default() },
+        RenderLayers::layer(0),
         OrderIndependentTransparencySettings::default(),
         Msaa::Off,
         Fxaa::default(),
@@ -703,6 +707,7 @@ fn setup(
             UiRoot3d,
             Transform::default(),
             Visibility::Visible,
+            RenderLayers::layer(0),
         ))
         .id();
     commands.entity(ring).with_children(|ring| {
@@ -1014,17 +1019,20 @@ fn add_health_and_magic(model: &mut MenuPageModel<OotPage, OotAction>) {
             None,
         );
     }
+    // Keep the magic meter in the HUD overlay, not on a rotating pane. The fill
+    // is rendered with explicit HUD depths below so it cannot z-fight with the
+    // backing or be clipped by cube pages while the pause shell spins.
     model.panel(MenuRect::new(6.0, 11.0, 27.0, 2.8), mc(Color::srgb(0.018, 0.045, 0.020)), None);
-    model.panel(MenuRect::new(6.5, 11.55, 21.5, 1.7), mc(Color::srgb(0.08, 0.72, 0.24)), None);
+    model.panel(MenuRect::new(6.7, 11.72, 20.9, 1.35), mc(Color::srgb(0.08, 0.72, 0.24)), None);
 }
 
 fn add_start_button_indicator(model: &mut MenuPageModel<OotPage, OotAction>) {
     model.control_with_icon(
         START_BUTTON_RECT,
         MenuControlKind::Decoration,
-        "START",
-        None,
-        None::<String>,
+        "",
+        Some("START".to_string()),
+        Some("icons/oot/hud_start.png"),
         false,
         true,
         None,
@@ -1035,9 +1043,9 @@ fn add_action_button_indicators(model: &mut MenuPageModel<OotPage, OotAction>) {
     model.control_with_icon(
         B_BUTTON_RECT,
         MenuControlKind::Action,
-        "B",
+        "",
         Some("Save".to_string()),
-        None::<String>,
+        Some("icons/oot/hud_button_b.png"),
         false,
         true,
         Some(OotAction::Save),
@@ -1045,9 +1053,9 @@ fn add_action_button_indicators(model: &mut MenuPageModel<OotPage, OotAction>) {
     model.control_with_icon(
         A_BUTTON_RECT,
         MenuControlKind::Action,
-        "A",
+        "",
         Some("Decide".to_string()),
-        None::<String>,
+        Some("icons/oot/hud_button_a.png"),
         false,
         true,
         None,
@@ -1059,21 +1067,32 @@ fn add_c_button_assignments(model: &mut MenuPageModel<OotPage, OotAction>, demo:
     // this demo. Keep only the three yellow C targets, anchored in screen/HUD
     // space rather than baked into any rotating page face.
     let assignments = [
-        ("C<", demo.c_left, C_LEFT_RECT, CButton::Left),
-        ("Cv", demo.c_down, C_DOWN_RECT, CButton::Down),
-        ("C>", demo.c_right, C_RIGHT_RECT, CButton::Right),
+        ("", demo.c_left, C_LEFT_RECT, CButton::Left),
+        ("", demo.c_down, C_DOWN_RECT, CButton::Down),
+        ("", demo.c_right, C_RIGHT_RECT, CButton::Right),
     ];
-    for (label, idx, rect, button) in assignments {
+    for (_label, idx, rect, button) in assignments {
         let item = oot_items()[idx];
         model.control_with_icon(
             rect,
             MenuControlKind::Action,
-            label,
+            "",
             Some(item.name.to_string()),
-            Some(item.icon),
+            Some("icons/oot/hud_button_c.png"),
             false,
             true,
             Some(OotAction::AssignC(button)),
+        );
+        let inset = rect.w * 0.24;
+        model.control_with_icon(
+            MenuRect::new(rect.x + inset, rect.y + inset, rect.w - inset * 2.0, rect.h - inset * 2.0),
+            MenuControlKind::Decoration,
+            "",
+            None,
+            Some(item.icon),
+            false,
+            false,
+            None,
         );
     }
 }
@@ -1316,13 +1335,164 @@ fn render_overlay_model(
 ) {
     for node in &model.nodes {
         match node {
-            MenuNode::Panel { rect, color, action } => spawn_panel(ui, materials, rect.x, rect.y, rect.w, rect.h, menu_color(*color), *action),
-            MenuNode::Text { x, y, size, text, align, color } => spawn_text(ui, materials, *x, *y, *size, text, menu_align(*align), menu_srgba(*color)),
+            MenuNode::Panel { rect, color, action } => spawn_hud_panel(ui, materials, rect.x, rect.y, rect.w, rect.h, menu_color(*color), *action),
+            MenuNode::Text { x, y, size, text, align, color } => spawn_hud_text(ui, materials, *x, *y, *size, text, menu_align(*align), menu_srgba(*color)),
             MenuNode::Control { rect, kind, label, detail, icon, selected, important, action } => {
-                spawn_control(ui, materials, asset_server, *rect, *kind, label, detail.as_deref(), icon.as_deref(), *selected, *important, *action);
+                spawn_hud_control(ui, materials, asset_server, *rect, *kind, label, detail.as_deref(), icon.as_deref(), *selected, *important, *action);
             }
         }
     }
+}
+
+
+fn spawn_hud_control(
+    ui: &mut ChildSpawnerCommands,
+    materials: &mut Assets<StandardMaterial>,
+    asset_server: &AssetServer,
+    rect: MenuRect,
+    kind: MenuControlKind,
+    label: &str,
+    detail: Option<&str>,
+    icon: Option<&str>,
+    selected: bool,
+    important: bool,
+    action: Option<OotAction>,
+) {
+    let color = if icon.is_some() { Color::srgba(1.0, 1.0, 1.0, 0.02) } else { control_color(kind, selected, important) };
+    let material = materials.add(StandardMaterial {
+        base_color: color,
+        alpha_mode: AlphaMode::Blend,
+        cull_mode: None,
+        unlit: true,
+        ..default()
+    });
+    let focus = MenuFocusKey {
+        row: (rect.y * 10.0).round() as i32,
+        col: (rect.x * 10.0).round() as i32,
+        order: (rect.y * 100.0 + rect.x).round() as i32,
+    };
+    let mut entity = ui.spawn((
+        Name::new(format!("HUD {:?} control", kind)),
+        UiLayout::window()
+            .x(Rl(rect.x))
+            .y(Rl(rect.y))
+            .width(Rl(rect.w))
+            .height(Rh(rect.h))
+            .anchor(Anchor::TOP_LEFT)
+            .pack(),
+        UiDepth::Set(DEPTH_HUD_PANEL),
+        UiMeshPlane3d,
+        MeshMaterial3d(material),
+        AmbitionMenuControl { kind, action, focus },
+        MenuVisualState { focused: selected, selected, disabled: action.is_none(), ..Default::default() },
+        RenderLayers::layer(HUD_RENDER_LAYER),
+    ));
+    if action.is_some() {
+        entity.insert((
+            OnHoverSetCursor::new(SystemCursorIcon::Pointer),
+            UiHover::new().forward_speed(18.0).backward_speed(10.0),
+            UiColor::new(vec![(UiBase::id(), color), (UiHover::id(), hover_panel_color())]),
+        ));
+    } else {
+        entity.insert((UiColor::from(color), Pickable::IGNORE));
+    }
+    entity.with_children(|children| {
+        if let Some(icon_path) = icon {
+            spawn_hud_icon(children, materials, asset_server, icon_path);
+        }
+        if !label.is_empty() {
+            spawn_hud_control_text(children, materials, if icon.is_some() { 62.0 } else { 50.0 }, 45.0, 22.0, label, TextAlign::Center, Srgba::rgb_u8(240, 232, 198));
+        }
+        if let Some(detail) = detail {
+            let y = if label.is_empty() { 82.0 } else { 76.0 };
+            spawn_hud_control_text(children, materials, if icon.is_some() { 62.0 } else { 50.0 }, y, 10.5, detail, TextAlign::Center, Srgba::rgb_u8(185, 196, 210));
+        }
+    });
+}
+
+fn spawn_hud_icon(
+    ui: &mut ChildSpawnerCommands,
+    materials: &mut Assets<StandardMaterial>,
+    asset_server: &AssetServer,
+    icon: &str,
+) {
+    let texture = asset_server.load(icon.to_string());
+    let material = materials.add(StandardMaterial {
+        base_color_texture: Some(texture),
+        base_color: Color::WHITE,
+        alpha_mode: AlphaMode::Blend,
+        cull_mode: None,
+        unlit: true,
+        ..default()
+    });
+    ui.spawn((
+        Name::new(format!("HUD icon {icon}")),
+        UiLayout::window().x(Rl(50.0)).y(Rl(50.0)).width(Rl(92.0)).height(Rh(92.0)).anchor(Anchor::CENTER).pack(),
+        UiDepth::Set(DEPTH_HUD_ICON),
+        UiMeshPlane3d,
+        MeshMaterial3d(material),
+        Pickable::IGNORE,
+        RenderLayers::layer(HUD_RENDER_LAYER),
+    ));
+}
+
+fn spawn_hud_control_text(ui: &mut ChildSpawnerCommands, materials: &mut Assets<StandardMaterial>, x: f32, y: f32, size: f32, text: &str, align: TextAlign, color: Srgba) {
+    let material = materials.add(StandardMaterial { base_color_texture: Some(TextAtlas::DEFAULT_IMAGE), alpha_mode: AlphaMode::Blend, cull_mode: None, unlit: true, ..default() });
+    ui.spawn((
+        Name::new("HUD control text"),
+        UiLayout::window().x(Rl(x)).y(Rl(y)).anchor(Anchor::CENTER).pack(),
+        UiDepth::Set(DEPTH_HUD_TEXT),
+        UiTextSize::from(Rh(size)),
+        Text3d::new(text),
+        Text3dStyling { size: 64.0, color, align, font: Arc::from(FONT_FAMILY), weight: Weight::BOLD, ..Default::default() },
+        MeshMaterial3d(material),
+        Mesh3d::default(),
+        Pickable::IGNORE,
+        RenderLayers::layer(HUD_RENDER_LAYER),
+    ));
+}
+
+fn spawn_hud_panel(
+    ui: &mut ChildSpawnerCommands,
+    materials: &mut Assets<StandardMaterial>,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    color: Color,
+    action: Option<OotAction>,
+) {
+    let material = materials.add(StandardMaterial { base_color: color, alpha_mode: AlphaMode::Opaque, cull_mode: None, unlit: true, ..default() });
+    let depth = if w < 25.0 && h < 2.0 { DEPTH_HUD_ICON } else { DEPTH_HUD_PANEL };
+    let mut entity = ui.spawn((
+        Name::new("HUD panel"),
+        UiLayout::window().x(Rl(x)).y(Rl(y)).width(Rl(w)).height(Rh(h)).anchor(Anchor::TOP_LEFT).pack(),
+        UiDepth::Set(depth),
+        UiMeshPlane3d,
+        MeshMaterial3d(material),
+        RenderLayers::layer(HUD_RENDER_LAYER),
+    ));
+    if action.is_some() {
+        entity.insert((OnHoverSetCursor::new(SystemCursorIcon::Pointer), UiHover::new().forward_speed(18.0).backward_speed(10.0), UiColor::new(vec![(UiBase::id(), color), (UiHover::id(), hover_panel_color())])));
+    } else {
+        entity.insert((UiColor::from(color), Pickable::IGNORE));
+    }
+}
+
+fn spawn_hud_text(ui: &mut ChildSpawnerCommands, materials: &mut Assets<StandardMaterial>, x: f32, y: f32, size: f32, text: &str, align: TextAlign, color: Srgba) {
+    let material = materials.add(StandardMaterial { base_color_texture: Some(TextAtlas::DEFAULT_IMAGE), alpha_mode: AlphaMode::Blend, cull_mode: None, unlit: true, ..default() });
+    ui.spawn((
+        Name::new("HUD text"),
+        UiLayout::window().x(Rl(x)).y(Rl(y)).anchor(Anchor::CENTER).pack(),
+        UiDepth::Set(DEPTH_HUD_TEXT),
+        UiTextSize::from(Rh(size)),
+        Text3d::new(text),
+        Text3dStyling { size: 64.0, color, align, font: Arc::from(FONT_FAMILY), weight: Weight::BOLD, ..Default::default() },
+        MeshMaterial3d(material),
+        Mesh3d::default(),
+        Pickable::IGNORE,
+        RenderLayers::layer(HUD_RENDER_LAYER),
+    ));
 }
 
 fn render_page_model(
@@ -1818,12 +1988,17 @@ fn apply_save_flip(face: OotPage, active: OotPage, amount: f32, transform: &mut 
     if face != active || amount <= 0.001 {
         return;
     }
-    // Rotate around the panel's horizontal center line. The scale easing keeps the
-    // panel visible through the midpoint instead of hard-cutting to the prompt.
-    let a = PI * amount.clamp(0.0, 1.0);
+    // Two-phase prompt flip: rotate the active face to edge-on, swap contents in
+    // add_save_prompt_panel at the midpoint, then rotate back to a front-facing
+    // prompt. A full 180 degree rotation leaves the text upside down/back-facing
+    // in this inside-cube setup, which was the source of the broken B-to-save
+    // display.
+    let t = amount.clamp(0.0, 1.0);
+    let half = if t < 0.5 { t * 2.0 } else { (1.0 - t) * 2.0 };
+    let eased = smoothstep(half);
+    let a = FRAC_PI_2 * eased;
     transform.rotation = transform.rotation * Quat::from_rotation_x(a);
-    let squash = (a.cos().abs()).max(0.18);
-    transform.scale.y *= squash;
+    transform.scale.y *= a.cos().abs().max(0.08);
 }
 
 fn mouse_navigation(mut wheel: MessageReader<MouseWheel>, shell: Res<MenuShell>, mut demo: ResMut<OotDemo>, mut menu: ResMut<MenuAnimation>) {
