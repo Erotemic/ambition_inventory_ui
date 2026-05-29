@@ -45,6 +45,7 @@ const DEPTH_HUD_TEXT: f32 = -1.70;
 const FONT_FAMILY: &str = "DejaVu Sans";
 const FPS_WINDOW_SAMPLES: usize = 120;
 const SAVE_FLIP_SPEED: f32 = 2.8;
+const LINK_IS_ADULT: bool = true;
 
 // HUD rectangles are authored in final visual page coordinates: x grows left-to-right
 // and y grows top-to-bottom on the visible pause face. Earlier patches tried to
@@ -150,7 +151,7 @@ impl Default for OotDemo {
     fn default() -> Self {
         Self {
             page: OotPage::Items,
-            selected: OotAction::Item(0),
+            selected: OotAction::Item(3),
             equipped_sword: 1,
             equipped_shield: 1,
             equipped_tunic: 0,
@@ -203,7 +204,7 @@ impl OotDemo {
 
     fn default_action_for_page(page: OotPage) -> OotAction {
         match page {
-            OotPage::Items => OotAction::Item(0),
+            OotPage::Items => OotAction::Item(default_item_action_index()),
             OotPage::Equipment => OotAction::EquipChoice { slot: 0, choice: 1 },
             OotPage::Map => OotAction::MapMarker(0),
             OotPage::Quest => OotAction::QuestIcon(0),
@@ -264,7 +265,11 @@ impl OotDemo {
             OotAction::EdgeRight => self.turn_page(PageTurn::ViewerRight),
             OotAction::Item(idx) => {
                 let item = oot_items()[idx];
-                self.status = format!("{} selected. Press Z/X/C to assign.", item.name);
+                if !item.usable_by_current_link() {
+                    self.status = format!("{} is visible for layout accuracy, but Adult Link cannot use it.", item.name);
+                } else {
+                    self.status = format!("{} selected. Press Z/X/C to assign.", item.name);
+                }
                 self.bump();
             }
             OotAction::AssignC(button) => {
@@ -287,13 +292,18 @@ impl OotDemo {
                 self.toggle_save_prompt();
             }
             OotAction::EquipChoice { slot, choice } => {
+                let option = equip_slots()[slot].choices[choice];
+                if !option.usable_by_current_link() {
+                    self.status = format!("{} is child-only in this Adult Link demo.", option.name);
+                    self.bump();
+                    return;
+                }
                 match slot {
                     0 => self.equipped_sword = choice,
                     1 => self.equipped_shield = choice,
                     2 => self.equipped_tunic = choice,
                     _ => self.equipped_boots = choice,
                 }
-                let option = equip_slots()[slot].choices[choice];
                 self.status = format!("Equipped {}.", option.name);
                 self.bump();
             }
@@ -333,6 +343,11 @@ impl OotDemo {
 
     fn start_c_button_equip(&mut self, item_idx: usize, button: CButton) {
         let item = oot_items()[item_idx];
+        if !item.usable_by_current_link() {
+            self.status = format!("{} cannot be assigned by Adult Link.", item.name);
+            self.bump();
+            return;
+        }
         let button_idx = button.index();
         let start = item_grid_center(item_idx);
         let bow_idx = bow_item_index();
@@ -381,6 +396,12 @@ impl OotDemo {
 
     fn assign_selected_item_to_c_button(&mut self, button: CButton) {
         if let OotAction::Item(idx) = self.selected {
+            let item = oot_items()[idx];
+            if !item.usable_by_current_link() {
+                self.status = format!("{} is disabled for Adult Link and cannot be assigned.", item.name);
+                self.bump();
+                return;
+            }
             // C-buttons are status indicators in the pause HUD, not focusable
             // controls. Keep the cursor on the inventory item while the equip
             // animation runs toward the requested C slot.
@@ -1014,15 +1035,18 @@ fn add_items_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo,
         let row = i / cols;
         let x = x0 + col as f32 * (cell_w + gap_x);
         let y = y0 + row as f32 * (cell_h + gap_y);
+        let usable = item.usable_by_current_link();
+        let action = if active_face && usable { Some(OotAction::Item(i)) } else { None };
+        let detail = if usable { item.detail.map(|s| s.to_string()) } else { Some("child".to_string()) };
         model.control_with_icon(
             MenuRect::new(x, y, cell_w, cell_h),
             MenuControlKind::Item,
             "",
-            item.detail.map(|s| s.to_string()),
+            detail,
             Some(item.icon),
-            demo.selected == OotAction::Item(i),
-            item.important,
-            active_face.then_some(OotAction::Item(i)),
+            usable && demo.selected == OotAction::Item(i),
+            item.important && usable,
+            action,
         );
     }
 }
@@ -1050,7 +1074,6 @@ fn add_pause_hud_overlay(model: &mut MenuPageModel<OotPage, OotAction>, demo: &O
     if let Some(anim) = demo.equip_anim {
         add_equip_anim_visual(model, anim);
     }
-    model.text(50.0, 75.0, 2.2, "Select an item, then press Z / X / C to assign. Press B for save.", MenuTextAlign::Center, mc(Color::srgb(0.75, 0.83, 0.90)));
 }
 
 fn add_health_and_magic(model: &mut MenuPageModel<OotPage, OotAction>) {
@@ -1195,15 +1218,17 @@ fn add_equipment_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotD
                 _ => demo.equipped_boots == choice_idx,
             };
             let action = OotAction::EquipChoice { slot: slot_idx, choice: choice_idx };
+            let usable = choice.usable_by_current_link();
+            let detail = if equipped { Some("E".to_string()) } else if !usable { Some("child".to_string()) } else { None };
             model.control_with_icon(
                 MenuRect::new(col_x[choice_idx], row_y[slot_idx], 9.5, 9.5),
                 MenuControlKind::Item,
                 "",
-                equipped.then(|| "E".to_string()),
+                detail,
                 Some(choice.icon),
-                demo.selected == action || equipped,
+                usable && demo.selected == action,
                 equipped,
-                active_face.then_some(action),
+                (active_face && usable).then_some(action),
             );
         }
     }
@@ -1576,7 +1601,8 @@ fn spawn_control(
     important: bool,
     action: Option<OotAction>,
 ) {
-    let color = control_color(kind, selected, important);
+    let disabled = is_disabled_control(kind, action);
+    let color = if disabled { disabled_control_color() } else { control_color(kind, selected, important) };
     let material = materials.add(StandardMaterial {
         base_color: color,
         alpha_mode: AlphaMode::Opaque,
@@ -1602,7 +1628,7 @@ fn spawn_control(
         UiMeshPlane3d,
         MeshMaterial3d(material),
         AmbitionMenuControl { kind, action, focus },
-        MenuVisualState { focused: selected, selected, disabled: action.is_none(), ..Default::default() },
+        MenuVisualState { focused: selected, selected, disabled, ..Default::default() },
     ));
     if action.is_some() {
         entity.insert((
@@ -1616,7 +1642,10 @@ fn spawn_control(
     entity.with_children(|children| {
         let icon_is_primary = matches!(kind, MenuControlKind::Item | MenuControlKind::MapMarker | MenuControlKind::Decoration);
         if let Some(icon_path) = icon {
-            spawn_icon(children, materials, asset_server, icon_path, icon_is_primary);
+            spawn_icon(children, materials, asset_server, icon_path, icon_is_primary, disabled);
+        }
+        if selected {
+            spawn_selection_corners(children, materials);
         }
         if icon_is_primary {
             if !label.is_empty() {
@@ -1642,6 +1671,7 @@ fn spawn_icon(
     asset_server: &AssetServer,
     icon: &str,
     primary: bool,
+    disabled: bool,
 ) {
     // This function is called as a child of a control. Its layout is therefore in
     // control-local percentages, not page percentages. The earlier demo used page
@@ -1652,7 +1682,7 @@ fn spawn_icon(
     let texture = asset_server.load(icon.to_string());
     let material = materials.add(StandardMaterial {
         base_color_texture: Some(texture),
-        base_color: Color::WHITE,
+        base_color: if disabled { Color::srgba(0.38, 0.38, 0.42, 0.55) } else { Color::WHITE },
         alpha_mode: AlphaMode::Blend,
         cull_mode: None,
         unlit: true,
@@ -1670,6 +1700,35 @@ fn spawn_icon(
         UiDepth::Set(DEPTH_ICON),
         UiMeshPlane3d,
         MeshMaterial3d(material),
+        Pickable::IGNORE,
+    ));
+}
+
+fn spawn_selection_corners(ui: &mut ChildSpawnerCommands, materials: &mut Assets<StandardMaterial>) {
+    let color = Color::WHITE;
+    let l = 22.0;
+    let t = 5.8;
+    // OoT-style focus selection: white square corner brackets. This is separate
+    // from the warm fill used for hover/equipped state.
+    spawn_corner_piece(ui, materials, 0.0, 0.0, l, t, color);
+    spawn_corner_piece(ui, materials, 0.0, 0.0, t, l, color);
+    spawn_corner_piece(ui, materials, 100.0 - l, 0.0, l, t, color);
+    spawn_corner_piece(ui, materials, 100.0 - t, 0.0, t, l, color);
+    spawn_corner_piece(ui, materials, 0.0, 100.0 - t, l, t, color);
+    spawn_corner_piece(ui, materials, 0.0, 100.0 - l, t, l, color);
+    spawn_corner_piece(ui, materials, 100.0 - l, 100.0 - t, l, t, color);
+    spawn_corner_piece(ui, materials, 100.0 - t, 100.0 - l, t, l, color);
+}
+
+fn spawn_corner_piece(ui: &mut ChildSpawnerCommands, materials: &mut Assets<StandardMaterial>, x: f32, y: f32, w: f32, h: f32, color: Color) {
+    let material = materials.add(StandardMaterial { base_color: color, alpha_mode: AlphaMode::Opaque, cull_mode: None, unlit: true, ..default() });
+    ui.spawn((
+        Name::new("OoT selection corner"),
+        UiLayout::window().x(Rl(x)).y(Rl(y)).width(Rl(w)).height(Rh(h)).anchor(Anchor::TOP_LEFT).pack(),
+        UiDepth::Set(DEPTH_TEXT_TOP - 0.03),
+        UiMeshPlane3d,
+        MeshMaterial3d(material),
+        UiColor::from(color),
         Pickable::IGNORE,
     ));
 }
@@ -1748,6 +1807,14 @@ fn spawn_text(ui: &mut ChildSpawnerCommands, materials: &mut Assets<StandardMate
         Mesh3d::default(),
         Pickable::IGNORE,
     ));
+}
+
+fn is_disabled_control(kind: MenuControlKind, action: Option<OotAction>) -> bool {
+    action.is_none() && matches!(kind, MenuControlKind::Item | MenuControlKind::MapMarker | MenuControlKind::Action)
+}
+
+fn disabled_control_color() -> Color {
+    Color::srgba(0.045, 0.045, 0.060, 0.82)
 }
 
 fn control_color(kind: MenuControlKind, selected: bool, important: bool) -> Color {
@@ -2171,10 +2238,11 @@ fn animate_menu_ring(
     }
     *visibility = if shell.is_visible() { Visibility::Visible } else { Visibility::Hidden };
     for (mut hud_transform, mut hud_visibility) in &mut hud_query {
-        *hud_visibility = if shell.is_visible() { Visibility::Visible } else { Visibility::Hidden };
+        *hud_visibility = Visibility::Visible;
         // Gameplay HUD elements are outside the pause pane in OoT. They should
         // not inherit the pause cube open/close fold, page rotation, or save
-        // prompt pitch; they only toggle visibility with the menu shell.
+        // prompt pitch. They also remain visible when the pause box/menu shell
+        // closes, matching OoT's persistent gameplay HUD.
         hud_transform.translation = Vec3::new(0.0, 0.0, PAGE_RADIUS - HUD_Z_OFFSET_TOWARD_CAMERA);
         hud_transform.scale = Vec3::new(HUD_SCREEN_X_FLIP, 1.0, 1.0);
         hud_transform.rotation = Quat::IDENTITY;
@@ -2328,6 +2396,12 @@ fn shortest_angle_delta(current: f32, target: f32) -> f32 {
     (target - current + PI).rem_euclid(two_pi) - PI
 }
 
+fn default_item_action_index() -> usize {
+    // Adult demo starts on the Fairy Bow, which is the central assignable Adult
+    // item and avoids landing the cursor on child-only row-one entries.
+    bow_item_index()
+}
+
 fn item_grid_center(idx: usize) -> Vec2 {
     let cols = 6;
     let cell_w = 10.0;
@@ -2400,7 +2474,12 @@ fn add_equip_anim_visual(model: &mut MenuPageModel<OotPage, OotAction>, anim: Eq
 }
 
 #[derive(Clone, Copy)]
-struct OotItem { name: &'static str, _short: &'static str, icon: &'static str, detail: Option<&'static str>, important: bool }
+struct OotItem { name: &'static str, _short: &'static str, icon: &'static str, detail: Option<&'static str>, important: bool, adult_usable: bool }
+impl OotItem {
+    fn usable_by_current_link(self) -> bool {
+        if LINK_IS_ADULT { self.adult_usable } else { true }
+    }
+}
 fn oot_items() -> [OotItem; 24] {
     // Source-like inventory slot order from OoT's InventorySlot enum:
     // row 1: sticks/nuts/bombs/bow/fire/din
@@ -2408,57 +2487,62 @@ fn oot_items() -> [OotItem; 24] {
     // row 3: boomerang/lens/beans/hammer/light/nayru
     // row 4: bottle1..4/adult trade/child trade
     [
-        OotItem { name: "Deku Stick", _short: "Stick", icon: "icons/oot/deku_stick.png", detail: Some("x99"), important: false },
-        OotItem { name: "Deku Nut", _short: "Nut", icon: "icons/oot/deku_nut.png", detail: Some("x99"), important: false },
-        OotItem { name: "Bomb", _short: "Bomb", icon: "icons/oot/bomb.png", detail: Some("x99"), important: false },
-        OotItem { name: "Fairy Bow", _short: "Bow", icon: "icons/oot/bow.png", detail: Some("x50"), important: true },
-        OotItem { name: "Fire Arrow", _short: "Fire", icon: "icons/oot/fire_arrow.png", detail: None, important: true },
-        OotItem { name: "Din's Fire", _short: "Din", icon: "icons/oot/dins_fire.png", detail: None, important: true },
-        OotItem { name: "Fairy Slingshot", _short: "Shot", icon: "icons/oot/slingshot.png", detail: Some("x50"), important: true },
-        OotItem { name: "Ocarina of Time", _short: "Ocarina", icon: "icons/oot/ocarina.png", detail: None, important: true },
-        OotItem { name: "Bombchu", _short: "Bombchu", icon: "icons/oot/bombchu.png", detail: Some("x50"), important: false },
-        OotItem { name: "Longshot", _short: "Long", icon: "icons/oot/longshot.png", detail: None, important: true },
-        OotItem { name: "Ice Arrow", _short: "Ice", icon: "icons/oot/ice_arrow.png", detail: None, important: true },
-        OotItem { name: "Farore's Wind", _short: "Farore", icon: "icons/oot/farores_wind.png", detail: None, important: true },
-        OotItem { name: "Boomerang", _short: "Boom", icon: "icons/oot/boomerang.png", detail: None, important: true },
-        OotItem { name: "Lens of Truth", _short: "Lens", icon: "icons/oot/lens.png", detail: None, important: true },
-        OotItem { name: "Magic Bean", _short: "Bean", icon: "icons/oot/beans.png", detail: Some("x10"), important: false },
-        OotItem { name: "Megaton Hammer", _short: "Hammer", icon: "icons/oot/hammer.png", detail: None, important: true },
-        OotItem { name: "Light Arrow", _short: "Light", icon: "icons/oot/light_arrow.png", detail: None, important: true },
-        OotItem { name: "Nayru's Love", _short: "Nayru", icon: "icons/oot/nayrus_love.png", detail: None, important: true },
-        OotItem { name: "Bottle", _short: "Fairy", icon: "icons/oot/bottle.png", detail: Some("Fairy"), important: true },
-        OotItem { name: "Bottle", _short: "Milk", icon: "icons/oot/milk.png", detail: Some("Milk"), important: true },
-        OotItem { name: "Bottle", _short: "Fire", icon: "icons/oot/bottle.png", detail: Some("Fire"), important: true },
-        OotItem { name: "Bottle", _short: "Poe", icon: "icons/oot/poe.png", detail: Some("Poe"), important: true },
-        OotItem { name: "Claim Check", _short: "Check", icon: "icons/oot/claim_check.png", detail: None, important: false },
-        OotItem { name: "Mask", _short: "Mask", icon: "icons/oot/mask.png", detail: None, important: false },
+        OotItem { name: "Deku Stick", _short: "Stick", icon: "icons/oot/deku_stick.png", detail: Some("x99"), important: false , adult_usable: false },
+        OotItem { name: "Deku Nut", _short: "Nut", icon: "icons/oot/deku_nut.png", detail: Some("x99"), important: false , adult_usable: true },
+        OotItem { name: "Bomb", _short: "Bomb", icon: "icons/oot/bomb.png", detail: Some("x99"), important: false , adult_usable: true },
+        OotItem { name: "Fairy Bow", _short: "Bow", icon: "icons/oot/bow.png", detail: Some("x50"), important: true , adult_usable: true },
+        OotItem { name: "Fire Arrow", _short: "Fire", icon: "icons/oot/fire_arrow.png", detail: None, important: true , adult_usable: true },
+        OotItem { name: "Din's Fire", _short: "Din", icon: "icons/oot/dins_fire.png", detail: None, important: true , adult_usable: true },
+        OotItem { name: "Fairy Slingshot", _short: "Shot", icon: "icons/oot/slingshot.png", detail: Some("x50"), important: true , adult_usable: false },
+        OotItem { name: "Ocarina of Time", _short: "Ocarina", icon: "icons/oot/ocarina.png", detail: None, important: true , adult_usable: true },
+        OotItem { name: "Bombchu", _short: "Bombchu", icon: "icons/oot/bombchu.png", detail: Some("x50"), important: false , adult_usable: true },
+        OotItem { name: "Longshot", _short: "Long", icon: "icons/oot/longshot.png", detail: None, important: true , adult_usable: true },
+        OotItem { name: "Ice Arrow", _short: "Ice", icon: "icons/oot/ice_arrow.png", detail: None, important: true , adult_usable: true },
+        OotItem { name: "Farore's Wind", _short: "Farore", icon: "icons/oot/farores_wind.png", detail: None, important: true , adult_usable: true },
+        OotItem { name: "Boomerang", _short: "Boom", icon: "icons/oot/boomerang.png", detail: None, important: true , adult_usable: false },
+        OotItem { name: "Lens of Truth", _short: "Lens", icon: "icons/oot/lens.png", detail: None, important: true , adult_usable: true },
+        OotItem { name: "Magic Bean", _short: "Bean", icon: "icons/oot/beans.png", detail: Some("x10"), important: false , adult_usable: false },
+        OotItem { name: "Megaton Hammer", _short: "Hammer", icon: "icons/oot/hammer.png", detail: None, important: true , adult_usable: true },
+        OotItem { name: "Light Arrow", _short: "Light", icon: "icons/oot/light_arrow.png", detail: None, important: true , adult_usable: true },
+        OotItem { name: "Nayru's Love", _short: "Nayru", icon: "icons/oot/nayrus_love.png", detail: None, important: true , adult_usable: true },
+        OotItem { name: "Bottle", _short: "Fairy", icon: "icons/oot/bottle.png", detail: Some("Fairy"), important: true , adult_usable: true },
+        OotItem { name: "Bottle", _short: "Milk", icon: "icons/oot/milk.png", detail: Some("Milk"), important: true , adult_usable: true },
+        OotItem { name: "Bottle", _short: "Fire", icon: "icons/oot/bottle.png", detail: Some("Fire"), important: true , adult_usable: true },
+        OotItem { name: "Bottle", _short: "Poe", icon: "icons/oot/poe.png", detail: Some("Poe"), important: true , adult_usable: true },
+        OotItem { name: "Claim Check", _short: "Check", icon: "icons/oot/claim_check.png", detail: None, important: false , adult_usable: true },
+        OotItem { name: "Mask", _short: "Mask", icon: "icons/oot/mask.png", detail: None, important: false , adult_usable: false },
     ]
 }
 #[derive(Clone, Copy)]
-struct EquipChoice { name: &'static str, _short: &'static str, icon: &'static str }
+struct EquipChoice { name: &'static str, _short: &'static str, icon: &'static str, adult_usable: bool }
+impl EquipChoice {
+    fn usable_by_current_link(self) -> bool {
+        if LINK_IS_ADULT { self.adult_usable } else { true }
+    }
+}
 #[derive(Clone, Copy)]
 struct EquipSlot { name: &'static str, choices: [EquipChoice; 3] }
 fn equip_slots() -> [EquipSlot; 4] {
     [
         EquipSlot { name: "Sword", choices: [
-            EquipChoice { name: "Kokiri Sword", _short: "Kok", icon: "icons/oot/kokiri_sword.png" },
-            EquipChoice { name: "Master Sword", _short: "Mas", icon: "icons/oot/master_sword.png" },
-            EquipChoice { name: "Biggoron Sword", _short: "Big", icon: "icons/oot/biggoron_sword.png" },
+            EquipChoice { name: "Kokiri Sword", _short: "Kok", icon: "icons/oot/kokiri_sword.png", adult_usable: false },
+            EquipChoice { name: "Master Sword", _short: "Mas", icon: "icons/oot/master_sword.png", adult_usable: true },
+            EquipChoice { name: "Biggoron Sword", _short: "Big", icon: "icons/oot/biggoron_sword.png", adult_usable: true },
         ]},
         EquipSlot { name: "Shield", choices: [
-            EquipChoice { name: "Deku Shield", _short: "Deku", icon: "icons/oot/deku_shield.png" },
-            EquipChoice { name: "Hylian Shield", _short: "Hyl", icon: "icons/oot/hylian_shield.png" },
-            EquipChoice { name: "Mirror Shield", _short: "Mir", icon: "icons/oot/mirror_shield.png" },
+            EquipChoice { name: "Deku Shield", _short: "Deku", icon: "icons/oot/deku_shield.png", adult_usable: false },
+            EquipChoice { name: "Hylian Shield", _short: "Hyl", icon: "icons/oot/hylian_shield.png", adult_usable: true },
+            EquipChoice { name: "Mirror Shield", _short: "Mir", icon: "icons/oot/mirror_shield.png", adult_usable: true },
         ]},
         EquipSlot { name: "Tunic", choices: [
-            EquipChoice { name: "Kokiri Tunic", _short: "Kok", icon: "icons/oot/kokiri_tunic.png" },
-            EquipChoice { name: "Goron Tunic", _short: "Gor", icon: "icons/oot/goron_tunic.png" },
-            EquipChoice { name: "Zora Tunic", _short: "Zora", icon: "icons/oot/zora_tunic.png" },
+            EquipChoice { name: "Kokiri Tunic", _short: "Kok", icon: "icons/oot/kokiri_tunic.png", adult_usable: true },
+            EquipChoice { name: "Goron Tunic", _short: "Gor", icon: "icons/oot/goron_tunic.png", adult_usable: true },
+            EquipChoice { name: "Zora Tunic", _short: "Zora", icon: "icons/oot/zora_tunic.png", adult_usable: true },
         ]},
         EquipSlot { name: "Boots", choices: [
-            EquipChoice { name: "Kokiri Boots", _short: "Kok", icon: "icons/oot/kokiri_boots.png" },
-            EquipChoice { name: "Iron Boots", _short: "Iron", icon: "icons/oot/iron_boots.png" },
-            EquipChoice { name: "Hover Boots", _short: "Hover", icon: "icons/oot/hover_boots.png" },
+            EquipChoice { name: "Kokiri Boots", _short: "Kok", icon: "icons/oot/kokiri_boots.png", adult_usable: true },
+            EquipChoice { name: "Iron Boots", _short: "Iron", icon: "icons/oot/iron_boots.png", adult_usable: true },
+            EquipChoice { name: "Hover Boots", _short: "Hover", icon: "icons/oot/hover_boots.png", adult_usable: true },
         ]},
     ]
 }
