@@ -41,10 +41,20 @@ const DEPTH_TEXT_TOP: f32 = -0.90;
 const FONT_FAMILY: &str = "DejaVu Sans";
 const FPS_WINDOW_SAMPLES: usize = 120;
 
-const C_LEFT_RECT: MenuRect = MenuRect { x: 27.0, y: 11.0, w: 7.8, h: 7.8 };
-const C_DOWN_RECT: MenuRect = MenuRect { x: 18.5, y: 19.0, w: 7.8, h: 7.8 };
-const C_RIGHT_RECT: MenuRect = MenuRect { x: 10.0, y: 11.0, w: 7.8, h: 7.8 };
-const B_BUTTON_RECT: MenuRect = MenuRect { x: 39.0, y: 16.0, w: 8.2, h: 8.2 };
+// HUD rectangles are authored in final visual page coordinates: x grows left-to-right
+// and y grows top-to-bottom on the visible pause face. Earlier patches tried to
+// compensate for the inside-face transform by hand and accidentally mirrored the
+// action buttons to the left side of the screen. Keep all OoT/source-inspired HUD
+// points funneled through these constants/helpers instead of repeating ad-hoc
+// inversions in each call site.
+const C_BUTTON_SIZE: f32 = 7.8;
+const C_LEFT_RECT: MenuRect = MenuRect { x: 75.0, y: 10.5, w: C_BUTTON_SIZE, h: C_BUTTON_SIZE };
+const C_DOWN_RECT: MenuRect = MenuRect { x: 83.5, y: 18.5, w: C_BUTTON_SIZE, h: C_BUTTON_SIZE };
+const C_RIGHT_RECT: MenuRect = MenuRect { x: 92.0, y: 10.5, w: C_BUTTON_SIZE, h: C_BUTTON_SIZE };
+const C_UP_RECT: MenuRect = MenuRect { x: 83.5, y: 2.8, w: C_BUTTON_SIZE, h: C_BUTTON_SIZE };
+const B_BUTTON_RECT: MenuRect = MenuRect { x: 59.0, y: 73.0, w: 8.2, h: 8.2 };
+const A_BUTTON_RECT: MenuRect = MenuRect { x: 70.0, y: 72.0, w: 9.2, h: 9.2 };
+const START_BUTTON_RECT: MenuRect = MenuRect { x: 47.0, y: 7.0, w: 8.5, h: 5.8 };
 
 
 fn main() {
@@ -815,6 +825,7 @@ fn build_page_model(page: OotPage, demo: &OotDemo, active_face: bool) -> MenuPag
         OotPage::Map => add_map_page(&mut model, demo, active_face),
         OotPage::Quest => add_quest_page(&mut model, demo, active_face),
     }
+    add_pause_hud_overlay(&mut model, demo, active_face);
     add_status_band(&mut model, demo);
     model
 }
@@ -867,20 +878,90 @@ fn add_items_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo,
             active_face.then_some(OotAction::Item(i)),
         );
     }
-    add_c_button_assignments(model, demo, active_face);
 }
 
-fn add_c_button_assignments(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, active_face: bool) {
-    // Display-only HUD button cluster. These are deliberately not focusable or clickable;
-    // C-left/down/right are assignment targets driven by controller/keyboard input only.
-    // Coordinates look reversed because the active page is rendered from inside
-    // a mirrored pause-room face. Low page X values land at the viewer's top-right; the individual C-left/right rects are therefore intentionally reversed in page coordinates.
-    model.panel(MenuRect::new(7.8, 7.2, 41.5, 22.0), mc(Color::srgba(0.010, 0.012, 0.020, 0.82)), None);
+fn add_pause_hud_overlay(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, _active_face: bool) {
+    // HUD elements are indicators layered over every pause face. They are not
+    // focusable menu cells, and the explicit project instruction says the C/A/B
+    // area must not become keyboard/gamepad cursor targets.
+    add_health_and_magic(model);
+    add_start_button_indicator(model);
+    add_action_button_indicators(model);
+    add_c_button_assignments(model, demo);
+
+    if demo.save_flip > 0.5 || demo.save_prompt_open {
+        model.panel(MenuRect::new(25.0, 31.5, 50.0, 28.0), mc(Color::srgba(0.015, 0.016, 0.035, 0.98)), None);
+        model.text(50.0, 39.0, 3.2, "Save?", MenuTextAlign::Center, mc(Color::srgb(0.94, 0.86, 0.55)));
+        model.control_with_icon(MenuRect::new(35.0, 47.0, 12.0, 7.5), MenuControlKind::Action, "Yes", None, None::<String>, demo.selected == OotAction::SaveYes, true, Some(OotAction::SaveYes));
+        model.control_with_icon(MenuRect::new(53.0, 47.0, 12.0, 7.5), MenuControlKind::Action, "No", None, None::<String>, demo.selected == OotAction::SaveNo, true, Some(OotAction::SaveNo));
+    }
+    if let Some(anim) = demo.equip_anim {
+        add_equip_anim_visual(model, anim);
+    }
+    model.text(50.0, 75.0, 2.2, "Select an item, then press Z / X / C to assign. Press B for save.", MenuTextAlign::Center, mc(Color::srgb(0.75, 0.83, 0.90)));
+}
+
+fn add_health_and_magic(model: &mut MenuPageModel<OotPage, OotAction>) {
+    for i in 0..10 {
+        let x = 6.0 + (i % 10) as f32 * 3.2;
+        model.control_with_icon(
+            MenuRect::new(x, 6.0, 2.8, 2.8),
+            MenuControlKind::Decoration,
+            "",
+            None,
+            Some("icons/oot/heart_piece.png"),
+            false,
+            false,
+            None,
+        );
+    }
+    model.panel(MenuRect::new(6.0, 11.0, 27.0, 2.8), mc(Color::srgb(0.018, 0.045, 0.020)), None);
+    model.panel(MenuRect::new(6.5, 11.55, 21.5, 1.7), mc(Color::srgb(0.08, 0.72, 0.24)), None);
+}
+
+fn add_start_button_indicator(model: &mut MenuPageModel<OotPage, OotAction>) {
+    model.control_with_icon(
+        START_BUTTON_RECT,
+        MenuControlKind::Decoration,
+        "START",
+        None,
+        None::<String>,
+        false,
+        true,
+        None,
+    );
+}
+
+fn add_action_button_indicators(model: &mut MenuPageModel<OotPage, OotAction>) {
     model.control_with_icon(
         B_BUTTON_RECT,
         MenuControlKind::Action,
         "B",
         Some("Save".to_string()),
+        None::<String>,
+        false,
+        true,
+        None,
+    );
+    model.control_with_icon(
+        A_BUTTON_RECT,
+        MenuControlKind::Action,
+        "A",
+        Some("Decide".to_string()),
+        None::<String>,
+        false,
+        true,
+        None,
+    );
+}
+
+fn add_c_button_assignments(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo) {
+    model.panel(MenuRect::new(73.0, 1.4, 26.0, 27.5), mc(Color::srgba(0.010, 0.012, 0.020, 0.82)), None);
+    model.control_with_icon(
+        C_UP_RECT,
+        MenuControlKind::Decoration,
+        "C^",
+        Some("Navi".to_string()),
         None::<String>,
         false,
         true,
@@ -904,16 +985,6 @@ fn add_c_button_assignments(model: &mut MenuPageModel<OotPage, OotAction>, demo:
             None,
         );
     }
-    if demo.save_flip > 0.5 || demo.save_prompt_open {
-        model.panel(MenuRect::new(25.0, 31.5, 50.0, 28.0), mc(Color::srgba(0.015, 0.016, 0.035, 0.98)), None);
-        model.text(50.0, 39.0, 3.2, "Save?", MenuTextAlign::Center, mc(Color::srgb(0.94, 0.86, 0.55)));
-        model.control_with_icon(MenuRect::new(35.0, 47.0, 12.0, 7.5), MenuControlKind::Action, "Yes", None, None::<String>, demo.selected == OotAction::SaveYes, true, active_face.then_some(OotAction::SaveYes));
-        model.control_with_icon(MenuRect::new(53.0, 47.0, 12.0, 7.5), MenuControlKind::Action, "No", None, None::<String>, demo.selected == OotAction::SaveNo, true, active_face.then_some(OotAction::SaveNo));
-    }
-    if let Some(anim) = demo.equip_anim {
-        add_equip_anim_visual(model, anim);
-    }
-    model.text(50.0, 75.0, 2.2, "Select an item, then press Z / X / C to assign. Press B for save.", MenuTextAlign::Center, mc(Color::srgb(0.75, 0.83, 0.90)));
 }
 
 fn add_equipment_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, active_face: bool) {
