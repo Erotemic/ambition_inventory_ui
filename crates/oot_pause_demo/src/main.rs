@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::f32::consts::{FRAC_PI_2, PI};
 use std::sync::Arc;
 
@@ -35,6 +36,13 @@ const DEPTH_EDGE: f32 = -0.82;
 const DEPTH_ICON: f32 = -0.74;
 const DEPTH_TEXT_TOP: f32 = -0.90;
 const FONT_FAMILY: &str = "DejaVu Sans";
+const FPS_WINDOW_SAMPLES: usize = 120;
+
+const C_LEFT_RECT: MenuRect = MenuRect { x: 72.0, y: 8.8, w: 8.6, h: 8.6 };
+const C_DOWN_RECT: MenuRect = MenuRect { x: 80.6, y: 17.6, w: 8.6, h: 8.6 };
+const C_RIGHT_RECT: MenuRect = MenuRect { x: 89.2, y: 8.8, w: 8.6, h: 8.6 };
+const B_BUTTON_RECT: MenuRect = MenuRect { x: 60.8, y: 12.6, w: 8.6, h: 8.6 };
+
 
 fn main() {
     App::new()
@@ -60,6 +68,7 @@ fn main() {
         .insert_resource(MenuAnimation::default())
         .insert_resource(MenuShell::default_open())
         .insert_resource(MenuShellEffects::default())
+        .insert_resource(FpsWindow::default())
         .insert_resource(MenuShellConfig {
             open_close_style: MenuOpenCloseStyle::OotPageFold,
             page_rotate_speed: 5.2,
@@ -69,7 +78,7 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(Update, menu_toggle_input)
         .add_systems(Update, (keyboard_navigation, mouse_navigation, pointer_hit_test, gamepad_navigation))
-        .add_systems(Update, (animate_equip_and_save, animate_menu_ring, rebuild_lunex_faces))
+        .add_systems(Update, (animate_equip_and_save, animate_menu_ring, rebuild_lunex_faces, update_fps_debug_overlay))
         .run();
 }
 
@@ -579,6 +588,18 @@ struct MenuRing;
 struct LunexFaceRoot;
 #[derive(Component)]
 struct PageFace(OotPage);
+#[derive(Component)]
+struct FpsDebugText;
+
+#[derive(Resource, Debug)]
+struct FpsWindow {
+    samples: VecDeque<f32>,
+}
+
+impl Default for FpsWindow {
+    fn default() -> Self { Self { samples: VecDeque::with_capacity(FPS_WINDOW_SAMPLES) } }
+}
+
 
 fn setup(
     mut commands: Commands,
@@ -597,6 +618,18 @@ fn setup(
         Fxaa::default(),
         Transform::from_translation(CAMERA_EYE).looking_at(CAMERA_LOOK, Vec3::Y),
     ));
+    commands.spawn((
+        FpsDebugText,
+        Text::new("fps: collecting..."),
+        TextFont { font_size: 14.0, ..default() },
+        TextColor(Color::srgba(0.86, 0.95, 0.88, 0.92)),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(10.0),
+            top: Val::Px(8.0),
+            ..default()
+        },
+    ));
     let ring = commands
         .spawn((
             Name::new("OoT-style Lunex pause room"),
@@ -610,6 +643,35 @@ fn setup(
     commands.entity(ring).with_children(|ring| {
         spawn_all_faces(ring, &demo, &mut materials, &asset_server);
     });
+}
+
+fn update_fps_debug_overlay(
+    time: Res<Time>,
+    mut fps: ResMut<FpsWindow>,
+    mut text_query: Query<&mut Text, With<FpsDebugText>>,
+) {
+    let delta = time.delta_secs();
+    if delta <= 0.0 {
+        return;
+    }
+    if fps.samples.len() == FPS_WINDOW_SAMPLES {
+        fps.samples.pop_front();
+    }
+    fps.samples.push_back(1.0 / delta);
+
+    let mut min = f32::INFINITY;
+    let mut max = 0.0_f32;
+    let mut sum = 0.0_f32;
+    for sample in fps.samples.iter().copied() {
+        min = min.min(sample);
+        max = max.max(sample);
+        sum += sample;
+    }
+    let mean = sum / fps.samples.len().max(1) as f32;
+
+    for mut text in &mut text_query {
+        *text = Text::new(format!("FPS {mean:5.1}  min {min:5.1}  max {max:5.1}"));
+    }
 }
 
 fn rebuild_lunex_faces(
@@ -782,16 +844,28 @@ fn add_items_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo,
 }
 
 fn add_c_button_assignments(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, active_face: bool) {
-    model.panel(MenuRect::new(18.0, 76.0, 64.0, 8.0), mc(Color::srgba(0.015, 0.018, 0.030, 0.96)), None);
+    // Display-only HUD button cluster. These are deliberately not focusable or clickable;
+    // C-left/down/right are assignment targets driven by controller/keyboard input only.
+    model.panel(MenuRect::new(58.8, 7.0, 39.2, 21.0), mc(Color::srgba(0.010, 0.012, 0.020, 0.82)), None);
+    model.control_with_icon(
+        B_BUTTON_RECT,
+        MenuControlKind::Action,
+        "B",
+        Some("Save".to_string()),
+        None::<String>,
+        false,
+        true,
+        None,
+    );
     let assignments = [
-        (CButton::Left, "C<", demo.c_left, 24.0),
-        (CButton::Down, "Cv", demo.c_down, 38.0),
-        (CButton::Right, "C>", demo.c_right, 52.0),
+        ("C<", demo.c_left, C_LEFT_RECT),
+        ("Cv", demo.c_down, C_DOWN_RECT),
+        ("C>", demo.c_right, C_RIGHT_RECT),
     ];
-    for (_button, label, idx, x) in assignments {
+    for (label, idx, rect) in assignments {
         let item = oot_items()[idx];
         model.control_with_icon(
-            MenuRect::new(x, 76.8, 10.2, 6.5),
+            rect,
             MenuControlKind::Action,
             label,
             Some(item.name.to_string()),
@@ -801,16 +875,6 @@ fn add_c_button_assignments(model: &mut MenuPageModel<OotPage, OotAction>, demo:
             None,
         );
     }
-    model.control_with_icon(
-        MenuRect::new(66.0, 76.8, 10.2, 6.5),
-        MenuControlKind::Action,
-        "B",
-        Some("Save".to_string()),
-        None::<String>,
-        false,
-        true,
-        None,
-    );
     if demo.save_flip > 0.5 || demo.save_prompt_open {
         model.panel(MenuRect::new(25.0, 31.5, 50.0, 28.0), mc(Color::srgba(0.015, 0.016, 0.035, 0.98)), None);
         model.text(50.0, 39.0, 3.2, "Save?", MenuTextAlign::Center, mc(Color::srgb(0.94, 0.86, 0.55)));
@@ -1666,11 +1730,12 @@ fn item_grid_center(idx: usize) -> Vec2 {
 }
 
 fn c_button_center(button: CButton) -> Vec2 {
-    match button {
-        CButton::Left => Vec2::new(24.0 + 5.1, 76.8 + 3.25),
-        CButton::Down => Vec2::new(38.0 + 5.1, 76.8 + 3.25),
-        CButton::Right => Vec2::new(52.0 + 5.1, 76.8 + 3.25),
-    }
+    let rect = match button {
+        CButton::Left => C_LEFT_RECT,
+        CButton::Down => C_DOWN_RECT,
+        CButton::Right => C_RIGHT_RECT,
+    };
+    Vec2::new(rect.x + rect.w * 0.5, rect.y + rect.h * 0.5)
 }
 
 fn bow_item_index() -> usize { 3 }
