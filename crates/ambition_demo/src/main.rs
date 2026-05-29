@@ -1,8 +1,8 @@
-use std::collections::VecDeque;
 use std::f32::consts::{FRAC_PI_2, PI};
 use std::sync::Arc;
 
 use bevy::anti_alias::fxaa::Fxaa;
+use bevy::asset::AssetPlugin;
 use bevy::core_pipeline::oit::OrderIndependentTransparencySettings;
 use bevy::input::mouse::MouseWheel;
 use bevy::input::touch::{TouchInput, TouchPhase};
@@ -44,7 +44,6 @@ const TAB_PAGES: [Page; 4] = [Page::Status, Page::Map, Page::Pack, Page::Gear];
 // Flip each page root in local X so text/layout read normally from inside.
 const INSIDE_PAGE_X_FLIP: f32 = -1.0;
 const FONT_FAMILY: &str = "DejaVu Sans";
-const FPS_WINDOW_SAMPLES: usize = 120;
 
 // Lunex computes child plane positions from UiDepth along the page root's
 // local facing direction. In the inside-cube view we are looking at the
@@ -60,14 +59,21 @@ const DEPTH_EDGE: f32 = -0.82;
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Ambition Inventory UI Prototype - Lunex".to_string(),
-                resolution: (1180, 760).into(),
+        .add_plugins(DefaultPlugins
+            .set(AssetPlugin {
+                // This crate lives under crates/ambition_demo, while shared demo
+                // assets remain at the workspace root.
+                file_path: "../../assets".to_string(),
                 ..default()
-            }),
-            ..default()
-        }))
+            })
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "Ambition Inventory UI Prototype - Lunex".to_string(),
+                    resolution: (1180, 760).into(),
+                    ..default()
+                }),
+                ..default()
+            }))
         .add_plugins((UiLunexPlugins, MeshPickingPlugin))
         .insert_resource(ClearColor(Color::srgb(0.018, 0.016, 0.024)))
         .insert_resource(LoadFonts {
@@ -82,7 +88,6 @@ fn main() {
         .insert_resource(MenuAnimation::default())
         .insert_resource(MenuShell::default())
         .insert_resource(MenuShellEffects::default())
-        .insert_resource(FpsWindow::default())
         .insert_resource(MenuShellConfig {
             // The library default is intentionally SmoothScale; this demo opts
             // into the nostalgic OoT fold so the example remains expressive.
@@ -92,17 +97,9 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(Update, menu_toggle_input)
         .add_systems(Update, (keyboard_navigation, mouse_navigation, pointer_hit_test, gamepad_navigation))
-        .add_systems(Update, (animate_menu_ring, rebuild_lunex_faces, update_fps_debug_overlay))
+        .add_systems(Update, (animate_menu_ring, rebuild_lunex_faces))
         .run();
 }
-
-#[derive(Resource, Default, Debug)]
-struct FpsWindow {
-    samples: VecDeque<f32>,
-}
-
-#[derive(Component)]
-struct FpsDebugText;
 
 #[derive(Resource, Clone, Debug)]
 struct InventoryDemo {
@@ -1064,20 +1061,6 @@ fn setup(
         Transform::from_translation(CAMERA_EYE).looking_at(CAMERA_LOOK, Vec3::Y),
     ));
 
-    commands.spawn((
-        Name::new("Regular demo FPS overlay"),
-        FpsDebugText,
-        Text::new("fps: collecting..."),
-        TextFont { font_size: 14.0, ..default() },
-        TextColor(Color::srgba(0.86, 0.95, 0.88, 0.92)),
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(10.0),
-            top: Val::Px(8.0),
-            ..default()
-        },
-    ));
-
     let ring = commands
         .spawn((
             Name::new("Inside-view Lunex menu room"),
@@ -1092,34 +1075,6 @@ fn setup(
     commands.entity(ring).with_children(|ring| {
         spawn_all_faces(ring, &demo, &mut materials, &asset_server);
     });
-}
-
-fn update_fps_debug_overlay(
-    time: Res<Time>,
-    mut fps: ResMut<FpsWindow>,
-    mut text_query: Query<&mut Text, With<FpsDebugText>>,
-) {
-    let delta = time.delta_secs();
-    if delta <= 0.0 {
-        return;
-    }
-    if fps.samples.len() == FPS_WINDOW_SAMPLES {
-        fps.samples.pop_front();
-    }
-    fps.samples.push_back(1.0 / delta);
-
-    let mut min = f32::INFINITY;
-    let mut max = 0.0_f32;
-    let mut sum = 0.0_f32;
-    for sample in fps.samples.iter().copied() {
-        min = min.min(sample);
-        max = max.max(sample);
-        sum += sample;
-    }
-    let mean = sum / fps.samples.len() as f32;
-    for mut text in &mut text_query {
-        *text = Text::new(format!("FPS {mean:5.1}  min {min:5.1}  max {max:5.1}"));
-    }
 }
 
 fn rebuild_lunex_faces(

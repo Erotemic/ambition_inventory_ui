@@ -183,6 +183,12 @@ The demos should prefer fewer, clearer layers over many subtle translucent overl
 
 The regular demo should demonstrate a polished generic game inventory, not merely a feature dump.
 
+
+
+### Structural organization update
+
+The reusable crate remains the workspace-root `ambition_inventory_ui` package. The regular Ambition-style demo now lives in `crates/ambition_demo`, and the OoT functional demo remains in `crates/oot_pause_demo`. Demo-specific code, assets, state machines, item lists, and visual calibration belong in those demo crates; reusable data structures and future stabilized primitives belong in the root library.
+
 ### 3.1 The regular demo is Ambition-like, not OoT-like
 
 The regular demo should show how the reusable crate could support Ambition or another game. It can borrow lessons from OoT, Morrowind, Hollow Knight, and Super Metroid, but it should not be a clone.

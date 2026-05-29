@@ -20,6 +20,12 @@ The demo should feel functionally similar to OoT while using original generated/
 
 ## 2. Crate Boundary
 
+
+### Structural organization update
+
+The reusable crate remains the workspace-root `ambition_inventory_ui` package. The regular Ambition-style demo now lives in `crates/ambition_demo`, and the OoT functional demo remains in `crates/oot_pause_demo`. Demo-specific code, assets, state machines, item lists, and visual calibration belong in those demo crates; reusable data structures and future stabilized primitives belong in the root library.
+
+
 The OoT demo must live in its own workspace crate.
 
 Recommended crate path:

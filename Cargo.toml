@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/oot_pause_demo"]
+members = [".", "crates/ambition_demo", "crates/oot_pause_demo"]
 resolver = "2"
 
 # The vendored bevy_lunex crate inherits package metadata and dependency
@@ -55,18 +55,13 @@ rand      = { version = "^0.9.1" }
 name = "ambition_inventory_ui"
 version = "0.1.0"
 edition = "2021"
-description = "Standalone Bevy prototype for a reusable inventory UI interaction model."
+description = "Reusable Bevy inventory/menu UI data model and interaction primitives."
 license = "MIT OR Apache-2.0"
 publish = false
 autobins = false
 
-[[bin]]
-name = "ambition_inventory_ui"
-path = "src/main.rs"
-
 [dependencies]
 bevy = "0.18.1"
-bevy_lunex = { path = "vendor/bevy_lunex/crate" }
 
 # Development runtime profile for Bevy demos.
 #
@@ -86,6 +81,10 @@ debug = true
 # Keep our editable crates at a lower optimization level than Bevy/wgpu/Lunex so
 # line-level debugging remains usable in the code we are actively changing.
 [profile.dev.package.ambition_inventory_ui]
+opt-level = 1
+debug = true
+
+[profile.dev.package.ambition_demo]
 opt-level = 1
 debug = true
 

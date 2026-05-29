@@ -13,8 +13,14 @@ A small polished vertical slice for an inventory UI crate:
 
 ## Run
 
+The reusable crate lives at the workspace root. Demos are separate crates:
+
 ```bash
-cargo run
+# Regular Ambition-style inventory demo
+cargo run -p ambition_demo
+
+# OoT functional pause-menu demo
+cargo run -p oot_pause_demo
 ```
 
 ## Controls
