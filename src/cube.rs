@@ -38,6 +38,10 @@ pub struct MenuRing;
 #[derive(Component)]
 pub struct CubePauseCamera;
 
+/// DEBUG (#31): marks the diagnostic box so the probe can report its visibility.
+#[derive(Component)]
+struct CubeDebugMarker;
+
 /// Plugin: spawns the cube camera + ring and rebuilds faces from
 /// `ActiveMenuPages<PageId, Action>`. Add once with the host's page/action types.
 pub struct CubeMenuPlugin<PageId, Action> {
@@ -62,7 +66,11 @@ where
             .add_systems(Startup, setup_cube)
             .add_systems(
                 Update,
-                (rebuild_cube_faces::<PageId, Action>, animate_cube_ring),
+                (
+                    rebuild_cube_faces::<PageId, Action>,
+                    animate_cube_ring,
+                    log_cube_probe,
+                ),
             );
     }
 }
@@ -106,6 +114,7 @@ fn setup_cube(
     // once faces render.
     commands.spawn((
         Name::new("Cube DEBUG marker"),
+        CubeDebugMarker,
         Mesh3d(meshes.add(Cuboid::new(1.5, 1.5, 1.5))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgb(1.0, 0.1, 0.8),
@@ -206,6 +215,43 @@ fn animate_cube_ring(time: Res<Time>, mut ring: Query<&mut Transform, With<MenuR
     // Gentle idle rotation for now — replaced by snap-to-active when nav lands.
     let _ = time;
     t.rotation = t.rotation.normalize();
+}
+
+/// DEBUG (#31): one-shot-per-activation probe — logs where the camera + diagnostic
+/// box actually are and whether the renderer considers the box visible. Distinguishes
+/// a frustum/layer problem (`ViewVisibility=false`) from a deeper pipeline problem
+/// (`ViewVisibility=true` but still nothing draws), and confirms the meshes exist.
+fn log_cube_probe(
+    cams: Query<(&GlobalTransform, &Camera), With<CubePauseCamera>>,
+    marker: Query<(&GlobalTransform, &ViewVisibility), With<CubeDebugMarker>>,
+    meshes: Query<(), With<Mesh3d>>,
+    mut logged: Local<bool>,
+) {
+    let Ok((cam_gt, cam)) = cams.single() else {
+        return;
+    };
+    if !cam.is_active {
+        *logged = false;
+        return;
+    }
+    if *logged {
+        return;
+    }
+    *logged = true;
+    let cpos = cam_gt.translation();
+    let cfwd = cam_gt.forward();
+    match marker.single() {
+        Ok((mgt, vv)) => info!(
+            "cube probe: camera at {cpos:?} forward {cfwd:?}; box at {:?} ViewVisibility={}; total Mesh3d entities={}",
+            mgt.translation(),
+            vv.get(),
+            meshes.iter().count()
+        ),
+        Err(_) => info!(
+            "cube probe: camera at {cpos:?} forward {cfwd:?}; NO box entity found; total Mesh3d entities={}",
+            meshes.iter().count()
+        ),
+    }
 }
 
 fn render_page_model<PageId, Action>(
