@@ -67,7 +67,11 @@ where
     }
 }
 
-fn setup_cube(mut commands: Commands) {
+fn setup_cube(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
     let geo = MenuCubeGeometry::default();
     commands.spawn((
         Name::new("Cube pause camera"),
@@ -79,12 +83,33 @@ fn setup_cube(mut commands: Commands) {
             // order-8 camera otherwise clears the whole screen to black every frame,
             // hiding everything the lower-order game cameras drew.
             is_active: false,
+            // DEBUG (#31): distinctive dark-purple clear so an active-but-empty cube
+            // reads as purple, not black — this separates "camera off/covered" (you
+            // see the game, not purple) from "camera renders but no faces" (purple,
+            // no content). Revert to ClearColorConfig::default() once it works.
+            clear_color: ClearColorConfig::Custom(Color::srgb(0.12, 0.0, 0.18)),
             ..default()
         },
         RenderLayers::layer(0),
         Msaa::Off,
         Transform::from_translation(Vec3::new(0.0, geo.camera_y, -geo.camera_distance))
             .looking_at(Vec3::new(0.0, geo.look_y, 0.0), Vec3::Y),
+    ));
+    // DEBUG (#31): a bright unlit box dead-centre in the cube camera's view. If this
+    // shows (a pink box on purple) but the lunex faces don't, the 3D pipeline +
+    // camera are fine and the bug is in the bevy_lunex face/layout/material path.
+    // If even this is missing, the camera isn't active or is being covered. Remove
+    // once faces render.
+    commands.spawn((
+        Name::new("Cube DEBUG marker"),
+        Mesh3d(meshes.add(Cuboid::new(1.5, 1.5, 1.5))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgb(1.0, 0.1, 0.8),
+            unlit: true,
+            ..default()
+        })),
+        Transform::from_xyz(0.0, 0.0, 0.0),
+        RenderLayers::layer(0),
     ));
     commands.spawn((
         Name::new("Cube menu ring"),
@@ -126,9 +151,15 @@ fn rebuild_cube_faces<PageId, Action>(
         commands.entity(face).despawn();
     }
     let Ok(ring) = ring_query.single() else {
+        warn!("cube: ring entity not found yet — deferring face rebuild");
         *dirty = true;
         return;
     };
+    info!(
+        "cube: rebuilding {} face(s) (active page present: {})",
+        pages.pages.len(),
+        pages.active.is_some()
+    );
     let geo = MenuCubeGeometry::default();
     let n = pages.pages.len().max(1) as f32;
     commands.entity(ring).with_children(|ring| {
