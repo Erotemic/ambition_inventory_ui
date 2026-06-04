@@ -2,41 +2,43 @@
 #![allow(clippy::type_complexity)]
 
 // Imports for this crate
-pub (crate) use std::any::TypeId;
+pub(crate) use std::any::TypeId;
 
-pub (crate) use bevy_asset::prelude::*;
-pub (crate) use bevy_app::prelude::*;
-use bevy_camera::{primitives::{Aabb, MeshAabb}, visibility::{RenderLayers, VisibilityClass}, Camera, ClearColorConfig};
-pub (crate) use bevy_color::prelude::*;
-pub (crate) use bevy_ecs::prelude::*;
-pub (crate) use bevy_math::prelude::*;
-pub (crate) use bevy_mesh::prelude::*;
-pub (crate) use bevy_text::prelude::*;
-pub (crate) use bevy_camera::prelude::*;
-pub (crate) use bevy_sprite::prelude::*;
-pub (crate) use bevy_sprite_render::prelude::*;
-pub (crate) use bevy_image::prelude::*;
-pub (crate) use bevy_platform::prelude::*;
-pub (crate) use bevy_reflect::prelude::*;
-pub (crate) use bevy_transform::prelude::*;
-pub (crate) use bevy_log::prelude::*;
-pub (crate) use bevy_gizmos::prelude::*;
-pub (crate) use bevy_window::prelude::*;
-pub (crate) use bevy_picking::prelude::*;
-pub (crate) use bevy_input::prelude::*;
-pub (crate) use bevy_time::prelude::*;
-pub (crate) use bevy_pbr::prelude::*;
-pub (crate) use bevy_derive::*;
-
-
+pub(crate) use bevy_app::prelude::*;
+pub(crate) use bevy_asset::prelude::*;
+pub(crate) use bevy_camera::prelude::*;
+use bevy_camera::{
+    Camera, ClearColorConfig,
+    primitives::{Aabb, MeshAabb},
+    visibility::{RenderLayers, VisibilityClass},
+};
+pub(crate) use bevy_color::prelude::*;
+pub(crate) use bevy_derive::*;
+pub(crate) use bevy_ecs::prelude::*;
+pub(crate) use bevy_gizmos::prelude::*;
+pub(crate) use bevy_image::prelude::*;
+pub(crate) use bevy_input::prelude::*;
+pub(crate) use bevy_log::prelude::*;
+pub(crate) use bevy_math::prelude::*;
+pub(crate) use bevy_mesh::prelude::*;
+pub(crate) use bevy_pbr::prelude::*;
+pub(crate) use bevy_picking::prelude::*;
+pub(crate) use bevy_platform::prelude::*;
+pub(crate) use bevy_reflect::prelude::*;
+pub(crate) use bevy_sprite::prelude::*;
+pub(crate) use bevy_sprite_render::prelude::*;
+pub(crate) use bevy_text::prelude::*;
+pub(crate) use bevy_time::prelude::*;
+pub(crate) use bevy_transform::prelude::*;
+pub(crate) use bevy_window::prelude::*;
 
 pub(crate) use bevy_app::PluginGroupBuilder;
-pub(crate) use bevy_sprite::Anchor;
-pub(crate) use bevy_text::TextLayoutInfo;
 pub(crate) use bevy_platform::collections::HashMap;
-pub(crate) use colored::Colorize;
 #[cfg(feature = "text3d")]
 pub(crate) use bevy_rich_text3d::*;
+pub(crate) use bevy_sprite::Anchor;
+pub(crate) use bevy_text::TextLayoutInfo;
+pub(crate) use colored::Colorize;
 
 // Imports from this crate
 pub mod prelude {
@@ -47,29 +49,9 @@ pub mod prelude {
 
     // All standard components
     pub use crate::{
-        Dimension,
-
-        UiFetchFromCamera,
-        UiSourceCamera,
-
-        UiEmbedding,
-        UiMeshPlane2d,
-        UiMeshPlane3d,
-
-        UiRoot3d,
-
-        UiLayoutRoot,
-        UiLayout,
-        UiDepth,
-        UiColor,
-
-        UiImageSize,
-        UiTextSize,
-
-        UiBase,
-        UiStateTrait,
-
-        TextAnimator,
+        Dimension, TextAnimator, UiBase, UiColor, UiDepth, UiEmbedding, UiFetchFromCamera,
+        UiImageSize, UiLayout, UiLayoutRoot, UiMeshPlane2d, UiMeshPlane3d, UiRoot3d,
+        UiSourceCamera, UiStateTrait, UiTextSize,
     };
 
     // Import other file preludes
@@ -79,9 +61,9 @@ pub mod prelude {
     pub use crate::units::*;
 
     // Export stuff from other crates
-    pub use bevy_sprite::Anchor;
     #[cfg(feature = "text3d")]
     pub use bevy_rich_text3d::*;
+    pub use bevy_sprite::Anchor;
     // #[cfg(feature = "text3d")]
     // pub use cosmic_text::Weight;
 }
@@ -100,7 +82,6 @@ pub use textanim::*;
 mod units;
 pub use units::*;
 
-
 // #===============================#
 // #=== MULTIPURPOSE COMPONENTS ===#
 
@@ -108,12 +89,11 @@ pub use units::*;
 #[derive(Component, Reflect, Deref, DerefMut, Default, Clone, PartialEq, Debug)]
 pub struct Dimension(pub Vec2);
 /// Conversion implementations
-impl <T: Into<Vec2>> From<T> for Dimension {
+impl<T: Into<Vec2>> From<T> for Dimension {
     fn from(value: T) -> Self {
         Dimension(value.into())
     }
 }
-
 
 // #=========================#
 // #=== TEXTURE EMBEDDING ===#
@@ -130,8 +110,14 @@ pub fn system_embedd_resize(
     mut images: ResMut<Assets<Image>>,
 ) {
     for (sprite, dimension) in &query {
-        if let Some(image) = images.get_mut(&sprite.image) && **dimension != Vec2::ZERO {
-            image.resize(bevy_render::render_resource::Extent3d { width: dimension.x as u32, height: dimension.y as u32, ..Default::default() });
+        if let Some(image) = images.get_mut(&sprite.image)
+            && **dimension != Vec2::ZERO
+        {
+            image.resize(bevy_render::render_resource::Extent3d {
+                width: dimension.x as u32,
+                height: dimension.y as u32,
+                ..Default::default()
+            });
         }
     }
 }
@@ -140,8 +126,10 @@ pub fn system_embedd_resize(
 pub trait ImageTextureConstructor {
     /// Just a utility constructor hiding the necessary texture initialization
     fn clear_render_texture() -> Image {
-        use bevy_render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
         use bevy_asset::RenderAssetUsages;
+        use bevy_render::render_resource::{
+            Extent3d, TextureDimension, TextureFormat, TextureUsages,
+        };
 
         let mut image = Image::new_fill(
             Extent3d {
@@ -154,7 +142,9 @@ pub trait ImageTextureConstructor {
             TextureFormat::Bgra8UnormSrgb,
             RenderAssetUsages::default(),
         );
-        image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
+        image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING
+            | TextureUsages::COPY_DST
+            | TextureUsages::RENDER_ATTACHMENT;
         image
     }
 }
@@ -178,7 +168,6 @@ impl CameraTextureRenderConstructor for Camera {
         self
     }
 }
-
 
 // #===========================#
 // #=== LAYOUT ROOT CONTROL ===#
@@ -216,7 +205,6 @@ impl UiLayoutRoot {
     }
 }
 
-
 /// **Ui Root 3d** - This is a marker component for all entities which fall under a 3D UI. You can check through this component
 /// if a specific node is 2D or 3D without looking for its root.
 #[derive(Component, Reflect, Clone, PartialEq, Debug)]
@@ -224,20 +212,24 @@ pub struct UiRoot3d;
 
 /// This system traverses the hierarchy and adds [`UiRoot3d`] component to children.
 pub fn system_mark_3d(
-    root_query: Query<(Has<UiRoot3d>, &Children), (With<UiLayoutRoot>, Without<UiLayout>, Changed<UiLayoutRoot>)>,
-    node_query: Query<(Entity, Has<UiRoot3d>, Option<&Children>), (With<UiLayout>, Without<UiLayoutRoot>)>,
+    root_query: Query<
+        (Has<UiRoot3d>, &Children),
+        (With<UiLayoutRoot>, Without<UiLayout>, Changed<UiLayoutRoot>),
+    >,
+    node_query: Query<
+        (Entity, Has<UiRoot3d>, Option<&Children>),
+        (With<UiLayout>, Without<UiLayoutRoot>),
+    >,
     mut commands: Commands,
 ) {
     for (is_root_3d, root_children) in &root_query {
-
         // Stack-based traversal
-        let mut stack: Vec<(Entity, usize)> = root_children.iter().map(|child| (child, 1)).rev().collect();
+        let mut stack: Vec<(Entity, usize)> =
+            root_children.iter().map(|child| (child, 1)).rev().collect();
 
         // Loop over the stack
         while let Some((current_entity, depth)) = stack.pop() {
             if let Ok((node, is_node_3d, node_children_option)) = node_query.get(current_entity) {
-
-
                 if is_root_3d != is_node_3d {
                     if is_root_3d {
                         commands.entity(node).insert(UiRoot3d);
@@ -245,7 +237,6 @@ pub fn system_mark_3d(
                         commands.entity(node).remove::<UiRoot3d>();
                     }
                 }
-
 
                 // Push children to the stack
                 if let Some(node_children) = node_children_option {
@@ -258,8 +249,6 @@ pub fn system_mark_3d(
     }
 }
 
-
-
 /// Trigger this event to recompute all [`UiLayoutRoot`] entities.
 #[derive(Event)]
 pub struct RecomputeUiLayout;
@@ -268,7 +257,7 @@ pub struct RecomputeUiLayout;
 pub fn observer_touch_layout_root(
     _trigger: On<RecomputeUiLayout>,
     mut query: Query<&mut UiLayoutRoot>,
-){
+) {
     for mut root in &mut query {
         root.as_mut();
     }
@@ -276,8 +265,11 @@ pub fn observer_touch_layout_root(
 
 /// This system draws the outlines of [`UiLayout`] and [`UiLayoutRoot`] as gizmos.
 pub fn system_debug_draw_gizmo_2d(
-    query: Query<(&GlobalTransform, &Dimension), (Or<(With<UiLayout>, With<UiLayoutRoot>)>, Without<UiRoot3d>)>,
-    mut gizmos: Gizmos<LunexGizmoGroup2d>
+    query: Query<
+        (&GlobalTransform, &Dimension),
+        (Or<(With<UiLayout>, With<UiLayoutRoot>)>, Without<UiRoot3d>),
+    >,
+    mut gizmos: Gizmos<LunexGizmoGroup2d>,
 ) {
     for (transform, dimension) in &query {
         // Draw the gizmo outline
@@ -291,8 +283,11 @@ pub fn system_debug_draw_gizmo_2d(
 
 /// This system draws the outlines of [`UiLayout`] and [`UiLayoutRoot`] as gizmos.
 pub fn system_debug_draw_gizmo_3d(
-    query: Query<(&GlobalTransform, &Dimension), (Or<(With<UiLayout>, With<UiLayoutRoot>)>, With<UiRoot3d>)>,
-    mut gizmos: Gizmos<LunexGizmoGroup3d>
+    query: Query<
+        (&GlobalTransform, &Dimension),
+        (Or<(With<UiLayout>, With<UiLayoutRoot>)>, With<UiRoot3d>),
+    >,
+    mut gizmos: Gizmos<LunexGizmoGroup3d>,
 ) {
     for (transform, dimension) in &query {
         // Draw the gizmo outline
@@ -306,15 +301,36 @@ pub fn system_debug_draw_gizmo_3d(
 
 /// This system traverses the hierarchy and prints the debug information.
 pub fn system_debug_print_data(
-    root_query: Query<(&UiLayoutRoot, NameOrEntity, &Dimension, &Children), (Without<UiLayout>, Or<(Changed<UiLayoutRoot>, Changed<Dimension>)>)>,
-    node_query: Query<(&UiLayout, &UiState, NameOrEntity, &Dimension, &Transform, Option<&Children>), Without<UiLayoutRoot>>,
+    root_query: Query<
+        (&UiLayoutRoot, NameOrEntity, &Dimension, &Children),
+        (
+            Without<UiLayout>,
+            Or<(Changed<UiLayoutRoot>, Changed<Dimension>)>,
+        ),
+    >,
+    node_query: Query<
+        (
+            &UiLayout,
+            &UiState,
+            NameOrEntity,
+            &Dimension,
+            &Transform,
+            Option<&Children>,
+        ),
+        Without<UiLayoutRoot>,
+    >,
 ) {
     for (_, root_name, root_dimension, root_children) in &root_query {
         // Create output string
-        let mut output_string = format!("▶ {}", format!("{root_name}").bold().underline().magenta());
+        let mut output_string =
+            format!("▶ {}", format!("{root_name}").bold().underline().magenta());
 
         output_string += " ⇒ ";
-        output_string += &format!("[w: {}, h: {}]", format!("{:.02}", root_dimension.x).green(), format!("{:.02}", root_dimension.y).green());
+        output_string += &format!(
+            "[w: {}, h: {}]",
+            format!("{:.02}", root_dimension.x).green(),
+            format!("{:.02}", root_dimension.y).green()
+        );
 
         output_string += "\n";
 
@@ -330,8 +346,15 @@ pub fn system_debug_print_data(
         let mut last_child_levels: Vec<bool> = Vec::new();
 
         while let Some((current_entity, depth, is_last)) = stack.pop() {
-            if let Ok((node_layout, _node_state, node_name, node_dimension, node_transform, node_children_option)) = node_query.get(current_entity) {
-
+            if let Ok((
+                node_layout,
+                _node_state,
+                node_name,
+                node_dimension,
+                node_transform,
+                node_children_option,
+            )) = node_query.get(current_entity)
+            {
                 // Adjust last_child_levels size
                 if last_child_levels.len() < depth {
                     last_child_levels.push(is_last);
@@ -341,7 +364,11 @@ pub fn system_debug_print_data(
 
                 // Create the tab level offset
                 for &last in &last_child_levels[..depth - 1] {
-                    output_string += &if last { format!("{}", "  ┆".black()) } else { "  │".to_string() };
+                    output_string += &if last {
+                        format!("{}", "  ┆".black())
+                    } else {
+                        "  │".to_string()
+                    };
                 }
 
                 // Add the name
@@ -354,7 +381,8 @@ pub fn system_debug_print_data(
 
                 output_string += " ⇒ ";
 
-                output_string += &format!("[w: {}, h: {}, d: {}]",
+                output_string += &format!(
+                    "[w: {}, h: {}, d: {}]",
                     format!("{:.02}", node_dimension.x).green(),
                     format!("{:.02}", node_dimension.y).green(),
                     format!("{:.00}", node_transform.translation.z).green(),
@@ -362,16 +390,18 @@ pub fn system_debug_print_data(
 
                 match node_layout.layouts.get(&UiBase::id()).unwrap() {
                     UiLayoutType::Boundary(boundary) => {
-                        output_string += &format!(" ➜ {} {} p1: {}, p2: {} {}",
+                        output_string += &format!(
+                            " ➜ {} {} p1: {}, p2: {} {}",
                             "Boundary".bold(),
                             "{",
                             boundary.pos1.to_nicestr(),
                             boundary.pos2.to_nicestr(),
                             "}",
                         );
-                    },
+                    }
                     UiLayoutType::Window(window) => {
-                        output_string += &format!(" ➜ {} {} p: {}, s: {}, a: {} {}",
+                        output_string += &format!(
+                            " ➜ {} {} p: {}, s: {}, a: {} {}",
                             "Window".bold(),
                             "{",
                             window.pos.to_nicestr(),
@@ -379,9 +409,10 @@ pub fn system_debug_print_data(
                             window.anchor.to_nicestr(),
                             "}",
                         );
-                    },
+                    }
                     UiLayoutType::Solid(solid) => {
-                        output_string += &format!(" ➜ {} {} s: {}, ax: {}, ay: {}, scl: {} {}",
+                        output_string += &format!(
+                            " ➜ {} {} s: {}, ax: {}, ay: {}, scl: {} {}",
                             "Solid".bold(),
                             "{",
                             solid.size.to_nicestr(),
@@ -390,7 +421,7 @@ pub fn system_debug_print_data(
                             format!("{:?}", solid.scaling).green(),
                             "}",
                         );
-                    },
+                    }
                 }
 
                 output_string += "\n";
@@ -408,7 +439,6 @@ pub fn system_debug_print_data(
         println!("UiLayout change detected:\n{}", output_string);
     }
 }
-
 
 // #======================#
 // #=== LAYOUT CONTROL ===#
@@ -443,7 +473,7 @@ pub fn system_debug_print_data(
 #[component(on_add = bevy_camera::visibility::add_visibility_class::<UiLayout>)]
 pub struct UiLayout {
     /// Stored layout per state
-    pub layouts: HashMap<TypeId, UiLayoutType>
+    pub layouts: HashMap<TypeId, UiLayoutType>,
 }
 /// Constructors
 impl UiLayout {
@@ -488,32 +518,44 @@ impl UiLayout {
     }
     /// Try to return a reference to a stored layout
     pub fn get_boundary(&self, id: TypeId) -> Option<&UiLayoutTypeBoundary> {
-        let UiLayoutType::Boundary(boundary) = self.layouts.get(&id)? else { return None; };
+        let UiLayoutType::Boundary(boundary) = self.layouts.get(&id)? else {
+            return None;
+        };
         Some(boundary)
     }
     /// Try to return a mut reference to a stored layout
     pub fn get_mut_boundary(&mut self, id: TypeId) -> Option<&mut UiLayoutTypeBoundary> {
-        let UiLayoutType::Boundary(boundary) = self.layouts.get_mut(&id)? else { return None; };
+        let UiLayoutType::Boundary(boundary) = self.layouts.get_mut(&id)? else {
+            return None;
+        };
         Some(boundary)
     }
     /// Try to return a reference to a stored layout
     pub fn get_window(&self, id: TypeId) -> Option<&UiLayoutTypeWindow> {
-        let UiLayoutType::Window(window) = self.layouts.get(&id)? else { return None; };
+        let UiLayoutType::Window(window) = self.layouts.get(&id)? else {
+            return None;
+        };
         Some(window)
     }
     /// Try to return a mut reference to a stored layout
     pub fn get_mut_window(&mut self, id: TypeId) -> Option<&mut UiLayoutTypeWindow> {
-        let UiLayoutType::Window(window) = self.layouts.get_mut(&id)? else { return None; };
+        let UiLayoutType::Window(window) = self.layouts.get_mut(&id)? else {
+            return None;
+        };
         Some(window)
     }
     /// Try to return a reference to a stored layout
     pub fn get_solid(&self, id: TypeId) -> Option<&UiLayoutTypeSolid> {
-        let UiLayoutType::Solid(solid) = self.layouts.get(&id)? else { return None; };
+        let UiLayoutType::Solid(solid) = self.layouts.get(&id)? else {
+            return None;
+        };
         Some(solid)
     }
     /// Try to return a mut reference to a stored layout
     pub fn get_mut_solid(&mut self, id: TypeId) -> Option<&mut UiLayoutTypeSolid> {
-        let UiLayoutType::Solid(solid) = self.layouts.get_mut(&id)? else { return None; };
+        let UiLayoutType::Solid(solid) = self.layouts.get_mut(&id)? else {
+            return None;
+        };
         Some(solid)
     }
 }
@@ -522,9 +564,7 @@ impl From<UiLayoutType> for UiLayout {
     fn from(value: UiLayoutType) -> Self {
         let mut map = HashMap::new();
         map.insert(UiBase::id(), value);
-        Self {
-            layouts: map,
-        }
+        Self { layouts: map }
     }
 }
 impl From<UiLayoutTypeBoundary> for UiLayout {
@@ -546,8 +586,13 @@ impl From<UiLayoutTypeSolid> for UiLayout {
     }
 }
 
-pub fn system_recompute_on_change <C: Component>(query: Query<Entity, Changed<C>>, mut commands: Commands){
-    if !query.is_empty() { commands.trigger(RecomputeUiLayout); }
+pub fn system_recompute_on_change<C: Component>(
+    query: Query<Entity, Changed<C>>,
+    mut commands: Commands,
+) {
+    if !query.is_empty() {
+        commands.trigger(RecomputeUiLayout);
+    }
 }
 
 /// **Ui Depth** - This component overrides the default Z axis (depth) stacking order.
@@ -566,11 +611,26 @@ impl Default for UiDepth {
     }
 }
 
-
 /// This system traverses the hierarchy and computes all nodes.
 pub fn system_layout_compute(
-    root_query: Query<(&UiLayoutRoot, &Transform, &Dimension, &Children), (Without<UiLayout>, Or<(Changed<UiLayoutRoot>, Changed<Dimension>)>)>,
-    mut node_query: Query<(&UiLayout, &UiDepth, &UiState, &mut Transform, &mut Dimension, Option<&Children>), Without<UiLayoutRoot>>,
+    root_query: Query<
+        (&UiLayoutRoot, &Transform, &Dimension, &Children),
+        (
+            Without<UiLayout>,
+            Or<(Changed<UiLayoutRoot>, Changed<Dimension>)>,
+        ),
+    >,
+    mut node_query: Query<
+        (
+            &UiLayout,
+            &UiDepth,
+            &UiState,
+            &mut Transform,
+            &mut Dimension,
+            Option<&Children>,
+        ),
+        Without<UiLayoutRoot>,
+    >,
 ) {
     for (root, root_transform, root_dimension, root_children) in &root_query {
         // Size of the viewport
@@ -580,14 +640,34 @@ pub fn system_layout_compute(
         };
 
         // Stack-based traversal
-        let mut stack: Vec<(Entity, Rectangle2D, f32)> = root_children.iter().map(|child| (child, root_rectangle, 0.0)).rev().collect();
+        let mut stack: Vec<(Entity, Rectangle2D, f32)> = root_children
+            .iter()
+            .map(|child| (child, root_rectangle, 0.0))
+            .rev()
+            .collect();
 
         while let Some((current_entity, parent_rectangle, depth)) = stack.pop() {
-            if let Ok((node_layout, node_depth, node_state, mut node_transform, mut node_dimension, node_children_option)) = node_query.get_mut(current_entity) {
+            if let Ok((
+                node_layout,
+                node_depth,
+                node_state,
+                mut node_transform,
+                mut node_dimension,
+                node_children_option,
+            )) = node_query.get_mut(current_entity)
+            {
                 // Compute all layouts for the node
                 let mut computed_rectangles = Vec::with_capacity(node_layout.layouts.len());
                 for (state, layout) in &node_layout.layouts {
-                    computed_rectangles.push((state, layout.compute(&parent_rectangle, root.abs_scale, root_rectangle.size, 16.0)));
+                    computed_rectangles.push((
+                        state,
+                        layout.compute(
+                            &parent_rectangle,
+                            root.abs_scale,
+                            root_rectangle.size,
+                            16.0,
+                        ),
+                    ));
                 }
 
                 // Normalize the active state weights
@@ -620,21 +700,24 @@ pub fn system_layout_compute(
                 node_transform.translation.x = node_rectangle.pos.x;
                 node_transform.translation.y = -node_rectangle.pos.y;
                 let depth = match node_depth {
-                    UiDepth::Add(v) => {depth + v},
-                    UiDepth::Set(v) => {*v},
+                    UiDepth::Add(v) => depth + v,
+                    UiDepth::Set(v) => *v,
                 };
                 node_transform.translation.z = depth * root.abs_scale;
                 **node_dimension = node_rectangle.size;
 
                 if let Some(node_children) = node_children_option {
                     // Add children to the stack
-                    stack.extend(node_children.iter().map(|child| (child, node_rectangle, depth)));
+                    stack.extend(
+                        node_children
+                            .iter()
+                            .map(|child| (child, node_rectangle, depth)),
+                    );
                 }
             }
         }
     }
 }
-
 
 // #=====================#
 // #=== STATE CONTROL ===#
@@ -692,21 +775,19 @@ impl Default for UiState {
     fn default() -> Self {
         let mut map = HashMap::new();
         map.insert(UiBase::id(), 1.0);
-        Self {
-            states: map,
-        }
+        Self { states: map }
     }
 }
 
 /// This system controls the [`UiBase`] state. This state is decreased based on total sum of all other active states.
-pub fn system_state_base_balancer(
-    mut query: Query<&mut UiState, Changed<UiState>>,
-) {
+pub fn system_state_base_balancer(mut query: Query<&mut UiState, Changed<UiState>>) {
     for mut manager in &mut query {
         // Normalize the active nobase state weights
         let mut total_nonbase_weight = 0.0;
         for (state, value) in &manager.states {
-            if *state == UiBase::id() { continue; }
+            if *state == UiBase::id() {
+                continue;
+            }
             total_nonbase_weight += value;
         }
 
@@ -756,15 +837,14 @@ impl UiStateTrait for UiBase {
     }
 }
 
-
 // #=====================#
 // #=== IMAGE CONTROL ===#
 
 /// **Ui Image Size** - This component makes image size the authority instead.
 #[derive(Component, Reflect, Deref, DerefMut, Default, Clone, PartialEq, Debug)]
-pub struct UiImageSize (pub UiValue<Vec2>);
+pub struct UiImageSize(pub UiValue<Vec2>);
 /// Constructors
-impl <T: Into<UiValue<Vec2>>> From<T> for UiImageSize {
+impl<T: Into<UiValue<Vec2>>> From<T> for UiImageSize {
     fn from(value: T) -> Self {
         UiImageSize(value.into())
     }
@@ -790,20 +870,27 @@ pub fn system_image_size_to_layout(
             let y = image_size.get_y() * image.height() as f32;
 
             if match layout.layouts.get(&UiBase::id()).unwrap() {
-                UiLayoutType::Window(window) => window.size.get_x() != x || window.size.get_y() != y,
+                UiLayoutType::Window(window) => {
+                    window.size.get_x() != x || window.size.get_y() != y
+                }
                 UiLayoutType::Solid(solid) => solid.size.get_x() != x || solid.size.get_y() != y,
                 _ => false,
             } {
                 match layout.layouts.get_mut(&UiBase::id()).unwrap() {
-                    UiLayoutType::Window(window) => { window.set_width(x); window.set_height(y); },
-                    UiLayoutType::Solid(solid) => { solid.set_width(x); solid.set_height(y); },
-                    _ => {},
+                    UiLayoutType::Window(window) => {
+                        window.set_width(x);
+                        window.set_height(y);
+                    }
+                    UiLayoutType::Solid(solid) => {
+                        solid.set_width(x);
+                        solid.set_height(y);
+                    }
+                    _ => {}
                 }
             }
         }
     }
 }
-
 
 // #====================#
 // #=== TEXT CONTROL ===#
@@ -842,9 +929,9 @@ pub fn system_image_size_to_layout(
 /// # }
 /// ```
 #[derive(Component, Reflect, Deref, DerefMut, Default, Clone, PartialEq, Debug)]
-pub struct UiTextSize (pub UiValue<f32>);
+pub struct UiTextSize(pub UiValue<f32>);
 /// Constructors
-impl <T: Into<UiValue<f32>>> From<T> for UiTextSize {
+impl<T: Into<UiValue<f32>>> From<T> for UiTextSize {
     fn from(value: T) -> Self {
         UiTextSize(value.into())
     }
@@ -871,7 +958,10 @@ pub fn system_text_size_from_dimension(
 /// This system takes updated [`TextLayoutInfo`] data and overwrites coresponding [`UiLayout`] data to match the text size.
 pub fn system_text_size_to_layout(
     mut commands: Commands,
-    mut query: Query<(&mut UiLayout, &Text2d, &TextLayoutInfo, &UiTextSize), Changed<TextLayoutInfo>>,
+    mut query: Query<
+        (&mut UiLayout, &Text2d, &TextLayoutInfo, &UiTextSize),
+        Changed<TextLayoutInfo>,
+    >,
 ) {
     for (mut layout, text, text_info, text_size) in &mut query {
         // Wait for text to render
@@ -880,16 +970,22 @@ pub fn system_text_size_to_layout(
         }
 
         // Create the text layout
-        match layout.layouts.get_mut(&UiBase::id()).expect("UiBase state not found for Text") {
+        match layout
+            .layouts
+            .get_mut(&UiBase::id())
+            .expect("UiBase state not found for Text")
+        {
             UiLayoutType::Window(window) => {
                 let lines = 1 + text.trim().matches('\n').count();
                 window.set_height(**text_size * (lines as f32));
-                window.set_width(**text_size * (lines as f32) * (text_info.size.x / text_info.size.y));
-            },
+                window.set_width(
+                    **text_size * (lines as f32) * (text_info.size.x / text_info.size.y),
+                );
+            }
             UiLayoutType::Solid(solid) => {
                 solid.set_size(Ab(text_info.size));
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 }
@@ -900,7 +996,10 @@ pub fn system_text_size_to_layout(
 #[cfg(feature = "text3d")]
 pub fn system_text_3d_size_to_layout(
     mut commands: Commands,
-    mut query: Query<(&mut UiLayout, &Text3d, &Text3dDimensionOut, &UiTextSize), Changed<Text3dDimensionOut>>,
+    mut query: Query<
+        (&mut UiLayout, &Text3d, &Text3dDimensionOut, &UiTextSize),
+        Changed<Text3dDimensionOut>,
+    >,
 ) {
     for (mut layout, text, text_info, text_size) in &mut query {
         // Wait for text to render
@@ -910,18 +1009,27 @@ pub fn system_text_3d_size_to_layout(
         }
 
         // Create the text layout
-        match layout.layouts.get_mut(&UiBase::id()).expect("UiBase state not found for Text") {
+        match layout
+            .layouts
+            .get_mut(&UiBase::id())
+            .expect("UiBase state not found for Text")
+        {
             UiLayoutType::Window(window) => {
-                let lines = 1 + text.get_single()
+                let lines = 1 + text
+                    .get_single()
                     .expect("Multisegment 3D text not supported, make a PR to Lunex if you need it")
-                    .trim().matches('\n').count();
+                    .trim()
+                    .matches('\n')
+                    .count();
                 window.set_height(**text_size * (lines as f32));
-                window.set_width(**text_size * (lines as f32) * (text_info.dimension.x / text_info.dimension.y));
-            },
+                window.set_width(
+                    **text_size * (lines as f32) * (text_info.dimension.x / text_info.dimension.y),
+                );
+            }
             UiLayoutType::Solid(solid) => {
                 solid.set_size(Ab(text_info.dimension));
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 }
@@ -946,7 +1054,6 @@ pub fn system_text_3d_size_from_dimension(
     }
 }
 
-
 // #=====================#
 // #=== STATE CONTROL ===#
 
@@ -962,12 +1069,17 @@ pub struct UiMeshPlane2d;
 
 /// This system takes [`Dimension`] data and constructs a plane mesh.
 pub fn system_mesh_3d_reconstruct_from_dimension(
-    mut query: Query<(&Dimension, &mut Mesh3d, Option<&mut Aabb>), (With<UiMeshPlane3d>, Changed<Dimension>)>,
+    mut query: Query<
+        (&Dimension, &mut Mesh3d, Option<&mut Aabb>),
+        (With<UiMeshPlane3d>, Changed<Dimension>),
+    >,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
     for (dimension, mut mesh, aabb_option) in &mut query {
         let plane_mesh = Mesh::from(Rectangle::new(dimension.x, dimension.y));
-        if let Some(a) = plane_mesh.compute_aabb() && let Some(mut aabb) = aabb_option {
+        if let Some(a) = plane_mesh.compute_aabb()
+            && let Some(mut aabb) = aabb_option
+        {
             *aabb = a;
         }
         mesh.0 = meshes.add(plane_mesh);
@@ -976,19 +1088,22 @@ pub fn system_mesh_3d_reconstruct_from_dimension(
 
 /// This system takes [`Dimension`] data and constructs a plane mesh.
 pub fn system_mesh_2d_reconstruct_from_dimension(
-    mut query: Query<(&Dimension, &mut Mesh2d, Option<&mut Aabb>), (With<UiMeshPlane2d>, Changed<Dimension>)>,
+    mut query: Query<
+        (&Dimension, &mut Mesh2d, Option<&mut Aabb>),
+        (With<UiMeshPlane2d>, Changed<Dimension>),
+    >,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
     for (dimension, mut mesh, aabb_option) in &mut query {
         let plane_mesh = Mesh::from(Rectangle::new(dimension.x, dimension.y));
-        if let Some(a) = plane_mesh.compute_aabb()  && let Some(mut aabb) = aabb_option {
+        if let Some(a) = plane_mesh.compute_aabb()
+            && let Some(mut aabb) = aabb_option
+        {
             *aabb = a;
         }
         mesh.0 = meshes.add(plane_mesh);
     }
 }
-
-
 
 // #=======================#
 // #=== CAMERA FETCHING ===#
@@ -1005,20 +1120,32 @@ pub struct UiSourceCamera<const INDEX: usize>;
 
 /// This system takes [`Camera`] viewport data and pipes them into querried [`Dimension`] + [`UiLayoutRoot`] + [`UiFetchFromCamera`].
 pub fn system_fetch_dimension_from_camera<const INDEX: usize>(
-    src_query: Query<(&Camera, Option<&Projection>), (With<UiSourceCamera<INDEX>>, Changed<Camera>)>,
+    src_query: Query<
+        (&Camera, Option<&Projection>),
+        (With<UiSourceCamera<INDEX>>, Changed<Camera>),
+    >,
     mut dst_query: Query<&mut Dimension, (With<UiLayoutRoot>, With<UiFetchFromCamera<INDEX>>)>,
 ) {
     // Check if we have a camera dimension input
-    if src_query.is_empty() { return; }
+    if src_query.is_empty() {
+        return;
+    }
     let Ok((camera, projection_option)) = src_query.single() else {
-        warn_once!("Multiple UiSourceCamera<{INDEX}> exist at once! Ignoring all camera inputs to avoid unexpected behavior!");
+        warn_once!(
+            "Multiple UiSourceCamera<{INDEX}> exist at once! Ignoring all camera inputs to avoid unexpected behavior!"
+        );
         return;
     };
 
     // Pipe the camera viewport size
     if let Some(cam_size) = camera.logical_viewport_size() {
         for mut size in &mut dst_query {
-            **size = Vec2::from((cam_size.x, cam_size.y)) * if let Some(Projection::Orthographic(p)) = projection_option { p.scale } else { 1.0 };
+            **size = Vec2::from((cam_size.x, cam_size.y))
+                * if let Some(Projection::Orthographic(p)) = projection_option {
+                    p.scale
+                } else {
+                    1.0
+                };
         }
     }
 }
@@ -1027,14 +1154,13 @@ pub fn system_fetch_dimension_from_camera<const INDEX: usize>(
 pub fn system_touch_camera_if_fetch_added<const INDEX: usize>(
     query: Query<Entity, Added<UiFetchFromCamera<INDEX>>>,
     mut cameras: Query<&mut Camera, With<UiSourceCamera<INDEX>>>,
-){
+) {
     if !query.is_empty() {
         for mut camera in &mut cameras {
             camera.as_mut();
         }
     }
 }
-
 
 // #===================#
 // #=== STYLE COLOR ===#
@@ -1077,7 +1203,7 @@ pub fn system_touch_camera_if_fetch_added<const INDEX: usize>(
 /// ```
 #[derive(Component, Reflect, Deref, DerefMut, Default, Clone, PartialEq, Debug)]
 pub struct UiColor {
-    colors: HashMap<TypeId, Color>
+    colors: HashMap<TypeId, Color>,
 }
 /// Constructors
 impl UiColor {
@@ -1091,32 +1217,32 @@ impl UiColor {
     }
 }
 /// Conversion implementations
-impl <T: Into<Color>> From<T> for UiColor {
+impl<T: Into<Color>> From<T> for UiColor {
     fn from(value: T) -> Self {
         let mut map = HashMap::new();
         map.insert(UiBase::id(), value.into());
-        Self {
-            colors: map,
-        }
+        Self { colors: map }
     }
 }
 
 /// This system takes care of [`UiColor`] data and updates querried [`Sprite`] and [`TextColor`] components.
 /// and updates [`ColorMaterial`] and [`StandardMaterial`]
 pub fn system_color(
-    mut query: Query<(
-        Option<&mut Sprite>,
-        Option<&mut TextColor>,
-        Option<&MeshMaterial2d<ColorMaterial>>,
-        Option<&MeshMaterial3d<StandardMaterial>>,
-        &UiColor,
-        &UiState,
-    ), Or<(Changed<UiColor>, Changed<UiState>)>>,
+    mut query: Query<
+        (
+            Option<&mut Sprite>,
+            Option<&mut TextColor>,
+            Option<&MeshMaterial2d<ColorMaterial>>,
+            Option<&MeshMaterial3d<StandardMaterial>>,
+            &UiColor,
+            &UiState,
+        ),
+        Or<(Changed<UiColor>, Changed<UiState>)>,
+    >,
     mut materials2d: ResMut<Assets<ColorMaterial>>,
     mut materials3d: Option<ResMut<Assets<StandardMaterial>>>,
 ) {
     for (node_sprite_option, node_text_option, mat2d, mat3d, node_color, node_state) in &mut query {
-
         // Normalize the active state weights
         let mut total_weight = 0.0;
         for (state, _) in &node_color.colors {
@@ -1143,7 +1269,8 @@ pub fn system_color(
                     if blend_color.alpha == 0.0 {
                         blend_color.hue = converted.hue;
                     } else {
-                        blend_color.hue = lerp_hue(blend_color.hue, converted.hue, weight / total_weight);
+                        blend_color.hue =
+                            lerp_hue(blend_color.hue, converted.hue, weight / total_weight);
                     }
 
                     //blend_color.hue += converted.hue * (weight / total_weight);
@@ -1165,7 +1292,10 @@ pub fn system_color(
             if let Some(mat) = materials2d.get_mut(id) {
                 mat.color = blend_color.into();
             }
-        } else if let Some(id) = mat3d && let Some(materials3d) = &mut materials3d && let Some(mat) = materials3d.get_mut(id) {
+        } else if let Some(id) = mat3d
+            && let Some(materials3d) = &mut materials3d
+            && let Some(mat) = materials3d.get_mut(id)
+        {
             mat.base_color = blend_color.into();
         }
     }
@@ -1175,7 +1305,6 @@ fn lerp_hue(h1: f32, h2: f32, t: f32) -> f32 {
     let diff = (h2 - h1 + 540.0) % 360.0 - 180.0; // Ensure shortest direction
     (h1 + diff * t + 360.0) % 360.0
 }
-
 
 // #===============================#
 // #=== THE LUNEX SETS & GROUPS ===#
@@ -1199,7 +1328,6 @@ pub struct LunexGizmoGroup2d;
 #[derive(GizmoConfigGroup, Default, Reflect, Clone, Debug)]
 pub struct LunexGizmoGroup3d;
 
-
 // #=========================#
 // #=== THE LUNEX PLUGINS ===#
 
@@ -1208,61 +1336,68 @@ pub struct LunexGizmoGroup3d;
 pub struct UiLunexPlugin;
 impl Plugin for UiLunexPlugin {
     fn build(&self, app: &mut App) {
-
         // Configure the system set
-        app.configure_sets(PostUpdate, (
-            UiSystems::PreCompute.before(UiSystems::Compute),
-            UiSystems::PostCompute.after(UiSystems::Compute).before(bevy_transform::TransformSystems::Propagate),
-        ));
+        app.configure_sets(
+            PostUpdate,
+            (
+                UiSystems::PreCompute.before(UiSystems::Compute),
+                UiSystems::PostCompute
+                    .after(UiSystems::Compute)
+                    .before(bevy_transform::TransformSystems::Propagate),
+            ),
+        );
 
         // Add observers
         app.add_observer(observer_touch_layout_root);
 
         // PRE-COMPUTE SYSTEMS
-        app.add_systems(PostUpdate, (
-
-            system_state_base_balancer,
-            system_text_size_to_layout.after(bevy_sprite::update_text2d_layout),
-            system_image_size_to_layout,
-            system_recompute_on_change::<UiLayout>,
-
-        ).chain().in_set(UiSystems::PreCompute));
+        app.add_systems(
+            PostUpdate,
+            (
+                system_state_base_balancer,
+                system_text_size_to_layout.after(bevy_sprite::update_text2d_layout),
+                system_image_size_to_layout,
+                system_recompute_on_change::<UiLayout>,
+            )
+                .chain()
+                .in_set(UiSystems::PreCompute),
+        );
 
         #[cfg(feature = "text3d")]
-        app.add_systems(PostUpdate,
+        app.add_systems(
+            PostUpdate,
             system_text_3d_size_to_layout
                 .after(bevy_rich_text3d::Text3dSet)
-                .in_set(UiSystems::PreCompute)
+                .in_set(UiSystems::PreCompute),
         );
-
 
         // COMPUTE SYSTEMS
-        app.add_systems(PostUpdate, (
-
-            system_layout_compute,
-
-        ).in_set(UiSystems::Compute));
-
-
-        // POST-COMPUTE SYSTEMS
-        app.add_systems(PostUpdate, (
-
-            system_color,
-            system_mark_3d,
-            system_pipe_sprite_size_from_dimension.before(bevy_sprite::SpriteSystems::ComputeSlices),
-            system_text_size_from_dimension,
-            system_mesh_3d_reconstruct_from_dimension,
-            system_mesh_2d_reconstruct_from_dimension,
-            system_embedd_resize,
-
-        ).in_set(UiSystems::PostCompute));
-
-        #[cfg(feature = "text3d")]
-        app.add_systems(PostUpdate,
-            system_text_3d_size_from_dimension
-                .in_set(UiSystems::PostCompute)
+        app.add_systems(
+            PostUpdate,
+            (system_layout_compute,).in_set(UiSystems::Compute),
         );
 
+        // POST-COMPUTE SYSTEMS
+        app.add_systems(
+            PostUpdate,
+            (
+                system_color,
+                system_mark_3d,
+                system_pipe_sprite_size_from_dimension
+                    .before(bevy_sprite::SpriteSystems::ComputeSlices),
+                system_text_size_from_dimension,
+                system_mesh_3d_reconstruct_from_dimension,
+                system_mesh_2d_reconstruct_from_dimension,
+                system_embedd_resize,
+            )
+                .in_set(UiSystems::PostCompute),
+        );
+
+        #[cfg(feature = "text3d")]
+        app.add_systems(
+            PostUpdate,
+            system_text_3d_size_from_dimension.in_set(UiSystems::PostCompute),
+        );
 
         // Add index plugins
         app.add_plugins((
@@ -1277,15 +1412,15 @@ impl Plugin for UiLunexPlugin {
     }
 }
 
-
 /// This plugin is used to enable debug functionality.
 #[derive(Debug, Default, Clone)]
 pub struct UiLunexDebugPlugin<const GIZMO_2D_LAYER: usize = 0, const GIZMO_3D_LAYER: usize = 0>;
-impl <const GIZMO_2D_LAYER: usize, const GIZMO_3D_LAYER: usize> Plugin for UiLunexDebugPlugin<GIZMO_2D_LAYER, GIZMO_3D_LAYER> {
+impl<const GIZMO_2D_LAYER: usize, const GIZMO_3D_LAYER: usize> Plugin
+    for UiLunexDebugPlugin<GIZMO_2D_LAYER, GIZMO_3D_LAYER>
+{
     fn build(&self, app: &mut App) {
-
         // Configure the Gizmo render groups
-        app .init_gizmo_group::<LunexGizmoGroup2d>()
+        app.init_gizmo_group::<LunexGizmoGroup2d>()
             .init_gizmo_group::<LunexGizmoGroup3d>()
             .add_systems(Startup, |mut config_store: ResMut<GizmoConfigStore>| {
                 let (my_config, _) = config_store.config_mut::<LunexGizmoGroup2d>();
@@ -1296,31 +1431,34 @@ impl <const GIZMO_2D_LAYER: usize, const GIZMO_3D_LAYER: usize> Plugin for UiLun
             });
 
         // Add the 2d and 3d gizmo outlines
-        app.add_systems(PostUpdate, (
-            system_debug_draw_gizmo_2d,
-            system_debug_draw_gizmo_3d,
-        ));
+        app.add_systems(
+            PostUpdate,
+            (system_debug_draw_gizmo_2d, system_debug_draw_gizmo_3d),
+        );
 
         // Add the debug tree printing
-        app.add_systems(PostUpdate, (
-            system_debug_print_data,
-        ).in_set(UiSystems::PostCompute));
+        app.add_systems(
+            PostUpdate,
+            (system_debug_print_data,).in_set(UiSystems::PostCompute),
+        );
     }
 }
-
 
 /// This plugin is used to register index components.
 #[derive(Debug, Default, Clone)]
 pub struct UiLunexIndexPlugin<const INDEX: usize>;
-impl <const INDEX: usize> Plugin for UiLunexIndexPlugin<INDEX> {
+impl<const INDEX: usize> Plugin for UiLunexIndexPlugin<INDEX> {
     fn build(&self, app: &mut App) {
-        app.add_systems(PostUpdate, (
-            system_fetch_dimension_from_camera::<INDEX>,
-            system_touch_camera_if_fetch_added::<INDEX>,
-        ).in_set(UiSystems::PreCompute));
+        app.add_systems(
+            PostUpdate,
+            (
+                system_fetch_dimension_from_camera::<INDEX>,
+                system_touch_camera_if_fetch_added::<INDEX>,
+            )
+                .in_set(UiSystems::PreCompute),
+        );
     }
 }
-
 
 /// Plugin group adding all necessary plugins for Lunex
 pub struct UiLunexPlugins;
@@ -1329,7 +1467,8 @@ impl PluginGroup for UiLunexPlugins {
         let mut builder = PluginGroupBuilder::start::<Self>();
 
         // Add text 3d plugin
-        #[cfg(feature = "text3d")] {
+        #[cfg(feature = "text3d")]
+        {
             builder = builder.add(Text3dPlugin {
                 load_system_fonts: true,
                 ..Default::default()

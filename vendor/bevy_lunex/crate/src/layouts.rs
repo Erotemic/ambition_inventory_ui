@@ -3,10 +3,7 @@ use crate::*;
 // Exported prelude
 pub mod prelude {
     // All standard exports
-    pub use super::{
-        Align,
-        Scaling,
-    };
+    pub use super::{Align, Scaling};
 }
 
 // #============================#
@@ -15,7 +12,7 @@ pub mod prelude {
 /// **Rectangle 2D** - Contains computed values from node layout.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect)]
 pub struct Rectangle2D {
-    pub pos : Vec2,
+    pub pos: Vec2,
     pub size: Vec2,
 }
 impl Rectangle2D {
@@ -28,7 +25,10 @@ impl Rectangle2D {
 }
 impl Rectangle2D {
     /// A new empty [`Rectangle2D`]. Has `0` size.
-    pub const EMPTY: Rectangle2D = Rectangle2D { pos : Vec2::ZERO, size: Vec2::ZERO };
+    pub const EMPTY: Rectangle2D = Rectangle2D {
+        pos: Vec2::ZERO,
+        size: Vec2::ZERO,
+    };
     /// Creates new empty Window layout.
     pub const fn new() -> Self {
         Rectangle2D::EMPTY
@@ -75,7 +75,7 @@ impl Rectangle2D {
 /// ```
 /// The expected range is `-1.0` to `1.0`, but you can extrapolate.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect)]
-pub struct Align (pub f32);
+pub struct Align(pub f32);
 impl Align {
     pub const START: Align = Align(-1.0);
     pub const LEFT: Align = Align(-1.0);
@@ -89,7 +89,6 @@ impl From<f32> for Align {
         Align(val)
     }
 }
-
 
 /// **Scaling** - A type used to define how should a Solid node layout scale relative to a parent.
 /// ## 🛠️ Example
@@ -107,11 +106,11 @@ pub enum Scaling {
     /// Node layout should always cover the vertical axis of the parent node.
     VerFill,
     /// Node layout should always fit inside the parent node.
-    #[default] Fit,
+    #[default]
+    Fit,
     /// Node layout should always cover all of the parent node.
     Fill,
 }
-
 
 // #====================#
 // #=== LAYOUT TYPES ===#
@@ -125,11 +124,23 @@ pub enum UiLayoutType {
 }
 impl UiLayoutType {
     /// Computes the layout based on given parameters.
-    pub(crate) fn compute(&self, parent: &Rectangle2D, absolute_scale: f32, viewport_size: Vec2, font_size: f32) -> Rectangle2D {
+    pub(crate) fn compute(
+        &self,
+        parent: &Rectangle2D,
+        absolute_scale: f32,
+        viewport_size: Vec2,
+        font_size: f32,
+    ) -> Rectangle2D {
         match self {
-            UiLayoutType::Boundary(layout) => layout.compute(parent, absolute_scale, viewport_size, font_size),
-            UiLayoutType::Window(layout) => layout.compute(parent, absolute_scale, viewport_size, font_size),
-            UiLayoutType::Solid(layout) => layout.compute(parent, absolute_scale, viewport_size, font_size),
+            UiLayoutType::Boundary(layout) => {
+                layout.compute(parent, absolute_scale, viewport_size, font_size)
+            }
+            UiLayoutType::Window(layout) => {
+                layout.compute(parent, absolute_scale, viewport_size, font_size)
+            }
+            UiLayoutType::Solid(layout) => {
+                layout.compute(parent, absolute_scale, viewport_size, font_size)
+            }
         }
     }
 }
@@ -148,7 +159,6 @@ impl From<UiLayoutTypeSolid> for UiLayoutType {
         UiLayoutType::Solid(value)
     }
 }
-
 
 /// **Boundary** - Declarative layout type that is defined by its top-left corner and bottom-right corner.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect)]
@@ -229,12 +239,28 @@ impl UiLayoutTypeBoundary {
         UiLayoutType::from(self)
     }
     /// Computes the layout based on given parameters.
-    pub(crate) fn compute(&self, parent: &Rectangle2D, absolute_scale: f32, viewport_size: Vec2, font_size: f32) -> Rectangle2D {
-        let pos1 = self.pos1.evaluate(Vec2::splat(absolute_scale), parent.size, viewport_size, Vec2::splat(font_size));
-        let pos2 = self.pos2.evaluate(Vec2::splat(absolute_scale), parent.size, viewport_size, Vec2::splat(font_size));
+    pub(crate) fn compute(
+        &self,
+        parent: &Rectangle2D,
+        absolute_scale: f32,
+        viewport_size: Vec2,
+        font_size: f32,
+    ) -> Rectangle2D {
+        let pos1 = self.pos1.evaluate(
+            Vec2::splat(absolute_scale),
+            parent.size,
+            viewport_size,
+            Vec2::splat(font_size),
+        );
+        let pos2 = self.pos2.evaluate(
+            Vec2::splat(absolute_scale),
+            parent.size,
+            viewport_size,
+            Vec2::splat(font_size),
+        );
         let size = pos2 - pos1;
         Rectangle2D {
-            pos: -parent.size / 2.0 + pos1 + size/2.0,
+            pos: -parent.size / 2.0 + pos1 + size / 2.0,
             size,
         }
     }
@@ -244,7 +270,7 @@ impl UiLayoutTypeBoundary {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect)]
 pub struct UiLayoutTypeWindow {
     /// Position of the node.
-    pub pos : UiValue<Vec2>,
+    pub pos: UiValue<Vec2>,
     /// Decides where position should be applied at.
     pub anchor: Anchor,
     /// Size of the node layout.
@@ -299,31 +325,31 @@ impl UiLayoutTypeWindow {
         self
     }
     /// Sets the position to a new value.
-    pub fn set_pos(&mut self, pos: impl Into<UiValue<Vec2>>){
+    pub fn set_pos(&mut self, pos: impl Into<UiValue<Vec2>>) {
         self.pos = pos.into();
     }
     /// Sets the x position to a new value.
-    pub fn set_x(&mut self, x: impl Into<UiValue<f32>>){
+    pub fn set_x(&mut self, x: impl Into<UiValue<f32>>) {
         self.pos.set_x(x);
     }
     /// Sets the y position to a new value.
-    pub fn set_y(&mut self, y: impl Into<UiValue<f32>>){
+    pub fn set_y(&mut self, y: impl Into<UiValue<f32>>) {
         self.pos.set_y(y);
     }
     /// Sets the size to a new value.
-    pub fn set_size(&mut self, size: impl Into<UiValue<Vec2>>){
+    pub fn set_size(&mut self, size: impl Into<UiValue<Vec2>>) {
         self.size = size.into();
     }
     /// Sets the width to a new value.
-    pub fn set_width(&mut self, width: impl Into<UiValue<f32>>){
+    pub fn set_width(&mut self, width: impl Into<UiValue<f32>>) {
         self.size.set_x(width);
     }
     /// Sets the height to a new value.
-    pub fn set_height(&mut self, height: impl Into<UiValue<f32>>){
+    pub fn set_height(&mut self, height: impl Into<UiValue<f32>>) {
         self.size.set_y(height);
     }
     /// Sets the anchor to a new value.
-    pub fn set_anchor(&mut self, anchor: impl Into<Anchor>){
+    pub fn set_anchor(&mut self, anchor: impl Into<Anchor>) {
         self.anchor = anchor.into();
     }
     /// Pack the layout type into UiLayout
@@ -335,9 +361,25 @@ impl UiLayoutTypeWindow {
         UiLayoutType::from(self)
     }
     /// Computes the layout based on given parameters.
-    pub(crate) fn compute(&self, parent: &Rectangle2D, absolute_scale: f32, viewport_size: Vec2, font_size: f32) -> Rectangle2D {
-        let pos = self.pos.evaluate(Vec2::splat(absolute_scale), parent.size, viewport_size, Vec2::splat(font_size));
-        let size = self.size.evaluate(Vec2::splat(absolute_scale), parent.size, viewport_size, Vec2::splat(font_size));
+    pub(crate) fn compute(
+        &self,
+        parent: &Rectangle2D,
+        absolute_scale: f32,
+        viewport_size: Vec2,
+        font_size: f32,
+    ) -> Rectangle2D {
+        let pos = self.pos.evaluate(
+            Vec2::splat(absolute_scale),
+            parent.size,
+            viewport_size,
+            Vec2::splat(font_size),
+        );
+        let size = self.size.evaluate(
+            Vec2::splat(absolute_scale),
+            parent.size,
+            viewport_size,
+            Vec2::splat(font_size),
+        );
         let mut anchor = self.anchor.as_vec();
         anchor.y *= -1.0;
         Rectangle2D {
@@ -432,9 +474,19 @@ impl UiLayoutTypeSolid {
         UiLayoutType::from(self)
     }
     /// Computes the layout based on given parameters.
-    pub(crate) fn compute(&self, parent: &Rectangle2D, absolute_scale: f32, viewport_size: Vec2, font_size: f32) -> Rectangle2D {
-
-        let size = self.size.evaluate(Vec2::splat(absolute_scale), parent.size, viewport_size, Vec2::splat(font_size));
+    pub(crate) fn compute(
+        &self,
+        parent: &Rectangle2D,
+        absolute_scale: f32,
+        viewport_size: Vec2,
+        font_size: f32,
+    ) -> Rectangle2D {
+        let size = self.size.evaluate(
+            Vec2::splat(absolute_scale),
+            parent.size,
+            viewport_size,
+            Vec2::splat(font_size),
+        );
 
         let scale = match self.scaling {
             Scaling::HorFill => parent.size.x / size.x,
@@ -447,7 +499,10 @@ impl UiLayoutTypeSolid {
 
         let computed_width = size.x * scale;
         let computed_height = size.y * scale;
-        let computed_point = Vec2::new(center_point.x - computed_width / 2.0, center_point.y - computed_height / 2.0);
+        let computed_point = Vec2::new(
+            center_point.x - computed_width / 2.0,
+            center_point.y - computed_height / 2.0,
+        );
 
         Rectangle2D {
             pos: Vec2::new(

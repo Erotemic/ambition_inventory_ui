@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/ambition_demo", "crates/oot_pause_demo"]
+members = [".", "crates/ambition_demo", "crates/oot_pause_demo", "crates/ambition_mock_demo"]
 resolver = "2"
 
 # The vendored bevy_lunex crate inherits package metadata and dependency
@@ -89,5 +89,9 @@ opt-level = 1
 debug = true
 
 [profile.dev.package.oot_pause_demo]
+opt-level = 1
+debug = true
+
+[profile.dev.package.ambition_mock_demo]
 opt-level = 1
 debug = true

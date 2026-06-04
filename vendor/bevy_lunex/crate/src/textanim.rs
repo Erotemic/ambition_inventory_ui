@@ -1,11 +1,11 @@
-use std::hash::{DefaultHasher, Hash, Hasher};
-use rand::{Rng, SeedableRng, rngs::StdRng};
 use crate::*;
+use rand::{Rng, SeedableRng, rngs::StdRng};
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 #[derive(Component, Reflect, Clone, PartialEq, Debug)]
 enum DurationMode {
     CharSpeed(f32),
-    AnimDuration(f32,)
+    AnimDuration(f32),
 }
 
 /// This component modifies attached [`Text2d`] with a modified string outputted from a time dependant function.
@@ -47,7 +47,7 @@ impl TextAnimator {
         match self.mode {
             DurationMode::AnimDuration(duration) => {
                 self.counter = duration;
-            },
+            }
             DurationMode::CharSpeed(_) => {
                 self.counter = 1.0 + self.string.trim().chars().count() as f32
             }
@@ -69,7 +69,11 @@ impl TextAnimator {
         self
     }
     /// This system takes care of updating the TextAnimator in time.
-    pub(crate) fn system_2d(mut query: Query<(&mut Text2d, &mut TextAnimator)>, time: Res<Time>, mut commads: Commands) {
+    pub(crate) fn system_2d(
+        mut query: Query<(&mut Text2d, &mut TextAnimator)>,
+        time: Res<Time>,
+        mut commads: Commands,
+    ) {
         for (mut text, mut animator) in &mut query {
             match animator.mode {
                 DurationMode::CharSpeed(speed) => {
@@ -77,46 +81,58 @@ impl TextAnimator {
 
                     // Increment the time counter
                     let mut modified = false;
-                    if animator.counter < chars { animator.counter += time.delta_secs() * speed; modified = true; }
+                    if animator.counter < chars {
+                        animator.counter += time.delta_secs() * speed;
+                        modified = true;
+                    }
                     animator.counter = animator.counter.min(chars);
 
                     // Continue if not changed
-                    if !modified { continue; }
-                   
+                    if !modified {
+                        continue;
+                    }
+
                     // Check if the new string will get changed somehow
-                    let new_text = (animator.function)(animator.counter/chars, &animator.string);
+                    let new_text = (animator.function)(animator.counter / chars, &animator.string);
                     if new_text.as_str() != text.as_str() {
-                        
                         // Change the target string
                         text.0 = new_text;
                         commads.trigger(RecomputeUiLayout);
                     }
-                    
                 }
                 DurationMode::AnimDuration(duration) => {
                     // Increment the time counter
                     let mut modified = false;
-                    if animator.counter < duration { animator.counter += time.delta_secs(); modified = true; }
+                    if animator.counter < duration {
+                        animator.counter += time.delta_secs();
+                        modified = true;
+                    }
                     animator.counter = animator.counter.min(duration);
 
                     // Continue if not changed
-                    if !modified { continue; }
+                    if !modified {
+                        continue;
+                    }
 
                     // Check if the new string will get changed somehow
-                    let new_text = (animator.function)(animator.counter/duration, &animator.string);
+                    let new_text =
+                        (animator.function)(animator.counter / duration, &animator.string);
                     if new_text.as_str() != text.as_str() {
-                        
                         // Change the target string
                         text.0 = new_text;
                         commads.trigger(RecomputeUiLayout);
                     }
-                },
+                }
             }
         }
     }
     /// This system takes care of updating the TextAnimator in time.
     #[cfg(feature = "text3d")]
-    pub(crate) fn system_3d(mut query: Query<(&mut Text3d, &mut TextAnimator)>, time: Res<Time>, mut commads: Commands) {
+    pub(crate) fn system_3d(
+        mut query: Query<(&mut Text3d, &mut TextAnimator)>,
+        time: Res<Time>,
+        mut commads: Commands,
+    ) {
         for (mut text, mut animator) in &mut query {
             match animator.mode {
                 DurationMode::CharSpeed(speed) => {
@@ -124,42 +140,62 @@ impl TextAnimator {
 
                     // Increment the time counter
                     let mut modified = false;
-                    if animator.counter < chars { animator.counter += time.delta_secs() * speed; modified = true; }
+                    if animator.counter < chars {
+                        animator.counter += time.delta_secs() * speed;
+                        modified = true;
+                    }
                     animator.counter = animator.counter.min(chars);
 
                     // Continue if not changed
-                    if !modified { continue; }
-                   
+                    if !modified {
+                        continue;
+                    }
+
                     // Check if the new string will get changed somehow
-                    let new_text = (animator.function)(animator.counter/chars, &animator.string);
-                    if new_text != text.get_single().expect("Multisegment 3D text not supported, make a PR to Lunex if you need it") {
-                        
+                    let new_text = (animator.function)(animator.counter / chars, &animator.string);
+                    if new_text
+                        != text.get_single().expect(
+                            "Multisegment 3D text not supported, make a PR to Lunex if you need it",
+                        )
+                    {
                         // Change the target string
-                        let text = text.get_single_mut().expect("Multisegment 3D text not supported, make a PR to Lunex if you need it");
+                        let text = text.get_single_mut().expect(
+                            "Multisegment 3D text not supported, make a PR to Lunex if you need it",
+                        );
                         *text = new_text;
                         commads.trigger(RecomputeUiLayout);
                     }
-                    
                 }
                 DurationMode::AnimDuration(duration) => {
                     // Increment the time counter
                     let mut modified = false;
-                    if animator.counter < duration { animator.counter += time.delta_secs(); modified = true; }
+                    if animator.counter < duration {
+                        animator.counter += time.delta_secs();
+                        modified = true;
+                    }
                     animator.counter = animator.counter.min(duration);
 
                     // Continue if not changed
-                    if !modified { continue; }
+                    if !modified {
+                        continue;
+                    }
 
                     // Check if the new string will get changed somehow
-                    let new_text = (animator.function)(animator.counter/duration, &animator.string);
-                    if new_text != text.get_single().expect("Multisegment 3D text not supported, make a PR to Lunex if you need it") {
-                        
+                    let new_text =
+                        (animator.function)(animator.counter / duration, &animator.string);
+                    if new_text
+                        != text.get_single().expect(
+                            "Multisegment 3D text not supported, make a PR to Lunex if you need it",
+                        )
+                    {
                         // Change the target string
-                        let text = text.get_single_mut().expect("Multisegment 3D text not supported, make a PR to Lunex if you need it");
+                        let text = text.get_single_mut().expect(
+                            "Multisegment 3D text not supported, make a PR to Lunex if you need it",
+                        );
                         *text = new_text;
                         commads.trigger(RecomputeUiLayout);
                     }
-                },
+                }
             }
         }
     }
@@ -195,14 +231,13 @@ pub fn typing_animation_cursor(t: f32, text: &str) -> String {
 
 /// Creates a decryption effect where random symbols gradually become the actual text
 pub fn decryption_animation(t: f32, text: &str) -> String {
-
     // Hash input data into unique seed
     let mut hasher = DefaultHasher::new();
     text.hash(&mut hasher);
     let seed: u64 = hasher.finish();
 
     // Create unique reproducible RNG from time
-    let mut rng = StdRng::seed_from_u64(seed + (t*60.0).round() as u64);
+    let mut rng = StdRng::seed_from_u64(seed + (t * 60.0).round() as u64);
 
     // Define symbols used
     let symbols = "!@#$%^&*()_+-=[]{}|;:'\",.<>/?`~";
@@ -213,7 +248,12 @@ pub fn decryption_animation(t: f32, text: &str) -> String {
 
         if char_progress < 0.0 {
             // Not yet started decrypting this character
-            result.push(symbols.chars().nth(rng.random_range(0..symbols.len())).unwrap());
+            result.push(
+                symbols
+                    .chars()
+                    .nth(rng.random_range(0..symbols.len()))
+                    .unwrap(),
+            );
         } else if char_progress >= 1.0 {
             // This character is fully decrypted
             result.push(c);
@@ -223,7 +263,12 @@ pub fn decryption_animation(t: f32, text: &str) -> String {
             if rng.random::<f32>() < char_progress {
                 result.push(c);
             } else {
-                result.push(symbols.chars().nth(rng.random_range(0..symbols.len())).unwrap());
+                result.push(
+                    symbols
+                        .chars()
+                        .nth(rng.random_range(0..symbols.len()))
+                        .unwrap(),
+                );
             }
         }
     }
@@ -278,18 +323,16 @@ pub fn scrambled_reveal_animation(t: f32, text: &str) -> String {
     result.into_iter().collect()
 }
 
-
-
 /// This plugin is used for the main logic.
 #[derive(Debug, Default, Clone)]
 pub struct UiLunexAnimPlugin;
 impl Plugin for UiLunexAnimPlugin {
     fn build(&self, app: &mut App) {
-
         app.add_systems(Update, TextAnimator::system_2d);
 
         // Add text 3d support
-        #[cfg(feature = "text3d")] {
+        #[cfg(feature = "text3d")]
+        {
             app.add_systems(Update, TextAnimator::system_3d);
         }
     }

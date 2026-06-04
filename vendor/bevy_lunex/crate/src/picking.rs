@@ -1,11 +1,10 @@
 use bevy_camera::RenderTarget;
 use bevy_math::FloatExt;
-use bevy_window::PrimaryWindow;
 use bevy_picking::backend::prelude::*;
-use bevy_picking::{backend::PointerHits, Pickable};
+use bevy_picking::{Pickable, backend::PointerHits};
+use bevy_window::PrimaryWindow;
 
 use crate::*;
-
 
 // #===============#
 // #=== BACKEND ===#
@@ -36,13 +35,16 @@ fn lunex_2d_picking(
         &Projection,
     )>,
     primary_window: Query<Entity, With<PrimaryWindow>>,
-    lunex_query: Query<(
-        Entity,
-        &Dimension,
-        &GlobalTransform,
-        Option<&Pickable>,
-        &ViewVisibility,
-    ), Without<NoLunexPicking>>,
+    lunex_query: Query<
+        (
+            Entity,
+            &Dimension,
+            &GlobalTransform,
+            Option<&Pickable>,
+            &ViewVisibility,
+        ),
+        Without<NoLunexPicking>,
+    >,
     mut output: MessageWriter<PointerHits>,
 ) {
     let mut sorted_nodes: Vec<_> = lunex_query
@@ -53,7 +55,8 @@ fn lunex_2d_picking(
             } else {
                 None
             }
-        }).collect();
+        })
+        .collect();
 
     // radsort is a stable radix sort that performed better than `slice::sort_by_key`
     radsort::sort_by_key(&mut sorted_nodes, |(_, _, transform, _)| {
@@ -69,11 +72,8 @@ fn lunex_2d_picking(
         let Some((cam_entity, camera, _, cam_transform, Projection::Orthographic(cam_ortho))) =
             cameras
                 .iter()
-                .filter(|(_, camera, _, _, _)| {
-                    camera.is_active
-                })
+                .filter(|(_, camera, _, _, _)| camera.is_active)
                 .find(|(_, _, target, _, _)| {
-                    
                     target
                         .normalize(primary_window)
                         .is_some_and(|x| x == location.target)
@@ -114,8 +114,7 @@ fn lunex_2d_picking(
                     // Cursor ray is parallel to the node and misses it
                     return None;
                 }
-                let lerp_factor =
-                    f32::inverse_lerp(cursor_start_node.z, cursor_end_node.z, 0.0);
+                let lerp_factor = f32::inverse_lerp(cursor_start_node.z, cursor_end_node.z, 0.0);
                 if !(0.0..=1.0).contains(&lerp_factor) {
                     // Lerp factor is out of range, meaning that while an infinite line cast by
                     // the cursor would intersect the node, the node is not between the
@@ -124,14 +123,13 @@ fn lunex_2d_picking(
                 }
                 // Otherwise we can interpolate the xy of the start and end positions by the
                 // lerp factor to get the cursor position in node space!
-                let cursor_pos_sprite = cursor_start_node
-                    .lerp(cursor_end_node, lerp_factor)
-                    .xy();
+                let cursor_pos_sprite = cursor_start_node.lerp(cursor_end_node, lerp_factor).xy();
 
                 let rect = Rect::from_center_size(Vec2::ZERO, **dimension);
                 let is_cursor_in_sprite = rect.contains(cursor_pos_sprite);
-                
-                blocked = is_cursor_in_sprite && pickable.map(|p| p.should_block_lower).unwrap_or(true);
+
+                blocked =
+                    is_cursor_in_sprite && pickable.map(|p| p.should_block_lower).unwrap_or(true);
 
                 is_cursor_in_sprite.then(|| {
                     let hit_pos_world =
@@ -153,7 +151,6 @@ fn lunex_2d_picking(
                         ),
                     )
                 })
-
             })
             .collect();
 

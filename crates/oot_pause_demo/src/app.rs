@@ -4,20 +4,20 @@ use std::sync::Arc;
 
 use bevy::anti_alias::fxaa::Fxaa;
 use bevy::asset::AssetPlugin;
+use bevy::camera::{visibility::RenderLayers, ClearColorConfig};
 use bevy::core_pipeline::oit::OrderIndependentTransparencySettings;
 use bevy::input::gamepad::GamepadAxis;
 use bevy::input::mouse::MouseWheel;
 use bevy::input::touch::{TouchInput, TouchPhase};
 use bevy::prelude::*;
-use bevy::camera::{ClearColorConfig, visibility::RenderLayers};
 use bevy::window::{PresentMode, PrimaryWindow, SystemCursorIcon};
 use bevy::winit::WinitSettings;
 use bevy_lunex::prelude::*;
 
 use ambition_inventory_ui::{
-    AmbitionMenuControl, AmbitionMenuPage, AmbitionMenuRoot, MenuColor, MenuControlKind, MenuFocusKey, MenuNode,
-    MenuOpenCloseStyle, MenuPageModel, MenuRect, MenuShellConfig, MenuShellEffect, MenuShellEffects, MenuShellPhase,
-    MenuTextAlign, MenuVisualState,
+    AmbitionMenuControl, AmbitionMenuPage, AmbitionMenuRoot, MenuColor, MenuControlKind,
+    MenuFocusKey, MenuNode, MenuOpenCloseStyle, MenuPageModel, MenuRect, MenuShellConfig,
+    MenuShellEffect, MenuShellEffects, MenuShellPhase, MenuTextAlign, MenuVisualState,
 };
 
 // Source-derived pause geometry notes:
@@ -55,12 +55,42 @@ const LINK_IS_ADULT: bool = true;
 // points funneled through these constants/helpers instead of repeating ad-hoc
 // inversions in each call site.
 const C_BUTTON_SIZE: f32 = 7.8;
-const C_LEFT_RECT: MenuRect = MenuRect { x: 76.5, y: 8.0, w: C_BUTTON_SIZE, h: C_BUTTON_SIZE };
-const C_DOWN_RECT: MenuRect = MenuRect { x: 84.8, y: 16.2, w: C_BUTTON_SIZE, h: C_BUTTON_SIZE };
-const C_RIGHT_RECT: MenuRect = MenuRect { x: 93.0, y: 8.0, w: C_BUTTON_SIZE, h: C_BUTTON_SIZE };
-const B_BUTTON_RECT: MenuRect = MenuRect { x: 59.0, y: 9.5, w: 8.2, h: 8.2 };
-const A_BUTTON_RECT: MenuRect = MenuRect { x: 68.5, y: 8.7, w: 9.2, h: 9.2 };
-const START_BUTTON_RECT: MenuRect = MenuRect { x: 45.8, y: 6.4, w: 8.5, h: 5.8 };
+const C_LEFT_RECT: MenuRect = MenuRect {
+    x: 76.5,
+    y: 8.0,
+    w: C_BUTTON_SIZE,
+    h: C_BUTTON_SIZE,
+};
+const C_DOWN_RECT: MenuRect = MenuRect {
+    x: 84.8,
+    y: 16.2,
+    w: C_BUTTON_SIZE,
+    h: C_BUTTON_SIZE,
+};
+const C_RIGHT_RECT: MenuRect = MenuRect {
+    x: 93.0,
+    y: 8.0,
+    w: C_BUTTON_SIZE,
+    h: C_BUTTON_SIZE,
+};
+const B_BUTTON_RECT: MenuRect = MenuRect {
+    x: 59.0,
+    y: 9.5,
+    w: 8.2,
+    h: 8.2,
+};
+const A_BUTTON_RECT: MenuRect = MenuRect {
+    x: 68.5,
+    y: 8.7,
+    w: 9.2,
+    h: 9.2,
+};
+const START_BUTTON_RECT: MenuRect = MenuRect {
+    x: 45.8,
+    y: 6.4,
+    w: 8.5,
+    h: 5.8,
+};
 const HUD_Z_OFFSET_TOWARD_CAMERA: f32 = 0.08;
 const HUD_SCREEN_X_FLIP: f32 = -1.0;
 const HUD_RENDER_LAYER: usize = 1;
@@ -70,28 +100,29 @@ const HUD_RENDER_LAYER: usize = 1;
 // z_parameter.c::Magic_DrawMeter). Mirror that separation here with a dedicated
 // HUD camera/render layer so cube faces can never depth-clip the HUD.
 
-
 pub(crate) fn run() {
     App::new()
-        .add_plugins(DefaultPlugins
-            .set(AssetPlugin {
-                // Bevy resolves asset paths relative to this demo crate by default
-                // when running `cargo run -p oot_pause_demo`. Keep the canonical
-                // generated icons at the workspace root and point the crate there.
-                file_path: "../../assets".to_string(),
-                ..default()
-            })
-            .set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Ambition Inventory UI - OoT Functional Pause Demo".to_string(),
-                resolution: (1180, 760).into(),
-                // Do not emulate OoT's low presentation cadence. Keep animations
-                // time-based, but let the demo present as fast as the host can render.
-                present_mode: PresentMode::AutoNoVsync,
-                ..default()
-            }),
-            ..default()
-        }))
+        .add_plugins(
+            DefaultPlugins
+                .set(AssetPlugin {
+                    // Bevy resolves asset paths relative to this demo crate by default
+                    // when running `cargo run -p oot_pause_demo`. Keep the canonical
+                    // generated icons at the workspace root and point the crate there.
+                    file_path: "../../assets".to_string(),
+                    ..default()
+                })
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "Ambition Inventory UI - OoT Functional Pause Demo".to_string(),
+                        resolution: (1180, 760).into(),
+                        // Do not emulate OoT's low presentation cadence. Keep animations
+                        // time-based, but let the demo present as fast as the host can render.
+                        present_mode: PresentMode::AutoNoVsync,
+                        ..default()
+                    }),
+                    ..default()
+                }),
+        )
         .insert_resource(WinitSettings::continuous())
         .add_plugins((UiLunexPlugins, MeshPickingPlugin))
         .insert_resource(ClearColor(Color::srgb(0.012, 0.011, 0.018)))
@@ -118,16 +149,27 @@ pub(crate) fn run() {
         })
         .add_systems(Startup, setup)
         .add_systems(Update, menu_toggle_input)
-        .add_systems(Update, (keyboard_navigation, mouse_navigation, pointer_hit_test, gamepad_navigation))
-        .add_systems(Update, (
-            animate_equip_and_save,
-            rebuild_lunex_faces,
-            animate_menu_ring,
-            update_fps_debug_overlay,
-        ).chain())
+        .add_systems(
+            Update,
+            (
+                keyboard_navigation,
+                mouse_navigation,
+                pointer_hit_test,
+                gamepad_navigation,
+            ),
+        )
+        .add_systems(
+            Update,
+            (
+                animate_equip_and_save,
+                rebuild_lunex_faces,
+                animate_menu_ring,
+                update_fps_debug_overlay,
+            )
+                .chain(),
+        )
         .run();
 }
-
 
 // Split out from the original single-file prototype. These files are
 // included into this private `app` module so the first refactor is

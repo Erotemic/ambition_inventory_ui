@@ -3,10 +3,7 @@ use crate::*;
 // Exported prelude
 pub mod prelude {
     // All standard exports
-    pub use super::{
-        UiHover,
-        hover_set,
-    };
+    pub use super::{UiHover, hover_set};
 }
 
 // #=======================#
@@ -14,12 +11,12 @@ pub mod prelude {
 
 /// **Ui Hover** - A built in state that should be triggered manually when a pointer hovers over a Ui-Node.
 /// This state first **needs to be enabled** for the entity by adding it as a component.
-/// 
+///
 /// Then you can use the [`Self::id`] function to identify this state inside components
 /// that allow you to specify per state properties like [`UiLayout`].
-/// 
+///
 /// For more information check the documentation on [`UiState`].
-/// 
+///
 /// ```
 /// # use bevy_ecs::prelude::*; use bevy_asset::prelude::*; use bevy_picking::prelude::*; use bevy_color::prelude::*; use bevy_lunex::prelude::*; use bevy_text::prelude::*; use bevy_sprite::prelude::*; use bevy_color::palettes::basic::*; use bevy_math::prelude::*;
 ///      UiLayout::new(vec![
@@ -27,7 +24,7 @@ pub mod prelude {
 ///          (UiHover::id(), UiLayout::window().x(Rl(10.0)).full())
 ///      ]);
 /// ```
-/// 
+///
 /// To trigger the state we can either manually flip the [`UiHover::enable`] field or trigger the [`UiHoverSet`]
 /// helper event. To do this easily, there is a convinient observer [`hover_set`] provided for it.
 ///
@@ -96,7 +93,7 @@ impl Default for UiHover {
         Self {
             value: 0.0,
             enable: false,
-            curve: |v| {v},
+            curve: |v| v,
             forward_speed: 1.0,
             backward_speed: 1.0,
             instant: false,
@@ -111,17 +108,20 @@ impl UiStateTrait for UiHover {
 }
 
 /// This system updates the hover transition value over time
-pub fn system_state_hover_update(
-    time: Res<Time>,
-    mut query: Query<&mut UiHover>,
-) {
+pub fn system_state_hover_update(time: Res<Time>, mut query: Query<&mut UiHover>) {
     for mut hover in &mut query {
         if hover.enable && hover.value < 1.0 {
-            if hover.instant { hover.value = 1.0; continue; }
+            if hover.instant {
+                hover.value = 1.0;
+                continue;
+            }
             hover.value = (hover.value + hover.forward_speed * time.delta_secs()).min(1.0);
         }
         if !hover.enable && hover.value > 0.0 {
-            if hover.instant { hover.value = 0.0; continue; }
+            if hover.instant {
+                hover.value = 0.0;
+                continue;
+            }
             hover.value = (hover.value - hover.backward_speed * time.delta_secs()).max(0.0);
         }
     }
@@ -129,16 +129,13 @@ pub fn system_state_hover_update(
 
 /// Event that enables the hover transition
 #[derive(EntityEvent, Clone, Copy)]
-pub struct UiHoverSet{
+pub struct UiHoverSet {
     entity: Entity,
     enable_hover_transition: bool,
 }
 
 /// This observer enables the hover transition on trigger
-fn observer_state_hover_set(
-    trigger: On<UiHoverSet>,
-    mut query: Query<&mut UiHover>,
-) {
+fn observer_state_hover_set(trigger: On<UiHoverSet>, mut query: Query<&mut UiHover>) {
     if let Ok(mut hover) = query.get_mut(trigger.event_target()) {
         hover.enable = trigger.enable_hover_transition;
     }
@@ -146,9 +143,11 @@ fn observer_state_hover_set(
 
 /// Utility observer that triggers the [`UiHoverSet`] event on triggered event.
 pub fn hover_set<E: EntityEvent, const BOOL: bool>(trigger: On<E>, mut commands: Commands) {
-    commands.trigger(UiHoverSet{entity: trigger.event_target(), enable_hover_transition: BOOL});
+    commands.trigger(UiHoverSet {
+        entity: trigger.event_target(),
+        enable_hover_transition: BOOL,
+    });
 }
-
 
 // #==========================#
 // #=== THE SELECTED STATE ===#
@@ -162,7 +161,6 @@ impl UiStateTrait for UiSelected {
     }
 }
 
-
 // #=========================#
 // #=== THE CLICKED STATE ===#
 
@@ -174,7 +172,6 @@ impl UiStateTrait for UiClicked {
         self.0
     }
 }
-
 
 // #=======================#
 // #=== THE INTRO STATE ===#
@@ -188,7 +185,6 @@ impl UiStateTrait for UiIntro {
     }
 }
 
-
 // #=======================#
 // #=== THE OUTRO STATE ===#
 
@@ -201,18 +197,21 @@ impl UiStateTrait for UiOutro {
     }
 }
 
-
-
-
 // #========================#
 // #=== THE STATE PLUGIN ===#
 
 /// Default linear curve used for reflection defaults
-pub fn default_linear_curve() -> fn(f32) -> f32 { |v| {v} }
+pub fn default_linear_curve() -> fn(f32) -> f32 {
+    |v| v
+}
 
 /// This observer will listen for said event and duplicate it to it's children
-fn observer_event_duplicator<'a, E: EntityEvent + Copy>(trigger: On<E>, mut commands: Commands, mut query: Query<&Children>)
-    where E::Trigger<'a>: Default
+fn observer_event_duplicator<'a, E: EntityEvent + Copy>(
+    trigger: On<E>,
+    mut commands: Commands,
+    mut query: Query<&Children>,
+) where
+    E::Trigger<'a>: Default,
 {
     if let Ok(children) = query.get_mut(trigger.event_target()) {
         for target in children.iter() {
@@ -227,7 +226,6 @@ fn observer_event_duplicator<'a, E: EntityEvent + Copy>(trigger: On<E>, mut comm
 pub struct UiLunexStatePlugin;
 impl Plugin for UiLunexStatePlugin {
     fn build(&self, app: &mut App) {
-
         // Add observers
         app.add_observer(observer_state_hover_set);
 
@@ -235,15 +233,17 @@ impl Plugin for UiLunexStatePlugin {
         app.add_observer(observer_event_duplicator::<UiHoverSet>);
 
         // PRE-COMPUTE SYSTEMS
-        app.add_systems(Update, (
-
-            system_state_hover_update,
-            system_state_pipe_into_manager::<UiHover>,
-            system_state_pipe_into_manager::<UiSelected>,
-            system_state_pipe_into_manager::<UiClicked>,
-            system_state_pipe_into_manager::<UiIntro>,
-            system_state_pipe_into_manager::<UiOutro>,
-
-        ).in_set(UiSystems::PreCompute));
+        app.add_systems(
+            Update,
+            (
+                system_state_hover_update,
+                system_state_pipe_into_manager::<UiHover>,
+                system_state_pipe_into_manager::<UiSelected>,
+                system_state_pipe_into_manager::<UiClicked>,
+                system_state_pipe_into_manager::<UiIntro>,
+                system_state_pipe_into_manager::<UiOutro>,
+            )
+                .in_set(UiSystems::PreCompute),
+        );
     }
 }
