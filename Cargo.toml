@@ -62,6 +62,9 @@ autobins = false
 
 [dependencies]
 bevy = "0.18.1"
+# Needed by the reusable cube renderer (`cube.rs`, #31). Same vendored crate the
+# demos use.
+bevy_lunex = { path = "vendor/bevy_lunex/crate" }
 
 # Development runtime profile for Bevy demos.
 #

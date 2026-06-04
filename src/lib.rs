@@ -14,6 +14,8 @@
 
 use bevy::prelude::{App, Component, Message, Plugin, Resource};
 
+pub mod cube;
+
 /// A normalized page-space rectangle.
 ///
 /// Coordinates are percentages in the page's local 2D layout space. `(0, 0)` is
