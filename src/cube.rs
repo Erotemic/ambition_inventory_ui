@@ -62,7 +62,10 @@ where
             .add_systems(Startup, setup_cube)
             .add_systems(
                 Update,
-                (rebuild_cube_faces::<PageId, Action>, animate_cube_ring),
+                (
+                    rebuild_cube_faces::<PageId, Action>,
+                    animate_cube_ring::<PageId, Action>,
+                ),
             );
     }
 }
@@ -177,13 +180,31 @@ fn rebuild_cube_faces<PageId, Action>(
 
 /// Slowly spin the ring so the active face faces the camera (placeholder feel;
 /// the host can drive `ActiveMenuPages::active` to pick the front face).
-fn animate_cube_ring(time: Res<Time>, mut ring: Query<&mut Transform, With<MenuRing>>) {
+fn animate_cube_ring<PageId, Action>(
+    time: Res<Time>,
+    pages: Option<Res<ActiveMenuPages<PageId, Action>>>,
+    mut ring: Query<&mut Transform, With<MenuRing>>,
+) where
+    PageId: PartialEq + Send + Sync + 'static,
+    Action: Send + Sync + 'static,
+{
     let Ok(mut t) = ring.single_mut() else {
         return;
     };
-    // Gentle idle rotation for now — replaced by snap-to-active when nav lands.
-    let _ = time;
-    t.rotation = t.rotation.normalize();
+    let Some(pages) = pages else {
+        return;
+    };
+    let n = pages.pages.len().max(1) as f32;
+    // Find the host's active page; rotate the ring so that face turns to the camera.
+    let active_idx = pages
+        .active
+        .as_ref()
+        .and_then(|a| pages.pages.iter().position(|p| &p.id == a))
+        .unwrap_or(0) as f32;
+    let target = Quat::from_rotation_y(-active_idx * std::f32::consts::TAU / n);
+    // Smooth snap toward the active face (OoT-style page turn).
+    let s = (time.delta_secs() * 8.0).clamp(0.0, 1.0);
+    t.rotation = t.rotation.slerp(target, s);
 }
 
 
