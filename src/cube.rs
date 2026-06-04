@@ -30,6 +30,12 @@ const DEPTH_EDGE: f32 = -0.68;
 const DEPTH_TEXT_TOP: f32 = -0.96;
 const FONT_FAMILY: &str = "DejaVu Sans";
 
+/// Matches the mock demo's `OOT_PAGE_FOLD_RADIANS` (`app.rs`): how far a page
+/// folds away from the ring when the menu is fully closed.
+const OOT_PAGE_FOLD_RADIANS: f32 = 1.60;
+/// Ease speed for the open/close fold, matching the demo's `open_close_speed`.
+const CUBE_OPEN_SPEED: f32 = 8.0;
+
 /// Marks the rotating ring root that holds the cube faces.
 #[derive(Component)]
 pub struct MenuRing;
@@ -37,6 +43,37 @@ pub struct MenuRing;
 /// Marks the dedicated pause camera that frames the cube.
 #[derive(Component)]
 pub struct CubePauseCamera;
+
+/// Non-generic marker on each cube face plus the face's base ring placement.
+///
+/// Stored at build time so the per-frame OoT page-fold can recompute each face's
+/// transform from its (immutable) base without corrupting it. A non-generic
+/// component lets [`animate_cube_open`] query faces without being generic over the
+/// host's `PageId`.
+#[derive(Component)]
+pub struct CubeFace {
+    /// Index of this face on the ring, used to derive the fold axis/sign.
+    pub index: usize,
+    /// The face's base translation on the ring (no fold applied).
+    pub base_translation: Vec3,
+    /// The face's base rotation on the ring (no fold applied).
+    pub base_rotation: Quat,
+    /// The face's base scale (carries the inside-of-cube X flip).
+    pub base_scale: Vec3,
+    /// Half-height of the face, for the bottom-edge hinge.
+    pub half_height: f32,
+}
+
+/// Eased open amount for the cube menu (0 = folded shut, 1 = laid flat/open).
+///
+/// The host sets [`CubeOpenState::target`]; [`animate_cube_open`] eases
+/// `amount` toward it each frame and folds the faces accordingly. The host also
+/// reads `amount` to drive camera/visibility so the close animation is visible.
+#[derive(Resource, Default)]
+pub struct CubeOpenState {
+    pub amount: f32,
+    pub target: f32,
+}
 
 /// Plugin: spawns the cube camera + ring and rebuilds faces from
 /// `ActiveMenuPages<PageId, Action>`. Add once with the host's page/action types.
@@ -59,12 +96,14 @@ where
 {
     fn build(&self, app: &mut App) {
         app.add_plugins(UiLunexPlugins)
+            .init_resource::<CubeOpenState>()
             .add_systems(Startup, setup_cube)
             .add_systems(
                 Update,
                 (
                     rebuild_cube_faces::<PageId, Action>,
                     animate_cube_ring::<PageId, Action>,
+                    animate_cube_open,
                 ),
             );
     }
@@ -153,11 +192,22 @@ fn rebuild_cube_faces<PageId, Action>(
             let angle = (i as f32) * std::f32::consts::TAU / n;
             let pos = Vec3::new(angle.sin() * geo.page_radius, 0.0, angle.cos() * geo.page_radius);
             let rot = Quat::from_rotation_y(angle);
+            let scale = Vec3::new(-1.0, 1.0, 1.0);
             let mut face = ring.spawn((
                 Name::new("Cube face"),
                 AmbitionMenuPage {
                     id: model.id.clone(),
                     active,
+                },
+                // Non-generic marker carrying the immutable base placement so the
+                // per-frame OoT page-fold ([`animate_cube_open`]) can recompute the
+                // face transform from its base without permanently corrupting it.
+                CubeFace {
+                    index: i,
+                    base_translation: pos,
+                    base_rotation: rot,
+                    base_scale: scale,
+                    half_height: geo.page_height * 0.5,
                 },
                 UiRoot3d,
                 // bevy_lunex needs a layout root + a Dimension on each face for the
@@ -169,7 +219,7 @@ fn rebuild_cube_faces<PageId, Action>(
                     .with_rotation(rot)
                     // Inside-of-cube X flip so face content reads correctly,
                     // matching the demo's INSIDE_PAGE_X_FLIP = -1.0.
-                    .with_scale(Vec3::new(-1.0, 1.0, 1.0)),
+                    .with_scale(scale),
                 Visibility::Visible,
                 RenderLayers::layer(0),
             ));
@@ -205,6 +255,63 @@ fn animate_cube_ring<PageId, Action>(
     // Smooth snap toward the active face (OoT-style page turn).
     let s = (time.delta_secs() * 8.0).clamp(0.0, 1.0);
     t.rotation = t.rotation.slerp(target, s);
+}
+
+/// Ease [`CubeOpenState::amount`] toward `target` and apply the OoT page-fold to
+/// every face — ported from the demo's `animate_menu_ring` / `apply_oot_open_fold`.
+///
+/// The fold is a *local* extra rotation composed with each face's stored base
+/// placement, recomputed from scratch each frame so the base transform is never
+/// corrupted. It is independent of (and composes cleanly with) the ring rotation
+/// in [`animate_cube_ring`], which still drives page navigation.
+///
+/// This system is intentionally non-generic — it queries the plain [`CubeFace`]
+/// marker rather than `AmbitionMenuPage<PageId>`, avoiding a generic-over-`PageId`
+/// system (and the need to instantiate it per host type).
+fn animate_cube_open(
+    time: Res<Time>,
+    mut state: ResMut<CubeOpenState>,
+    mut faces: Query<(&CubeFace, &mut Transform)>,
+) {
+    // Demo's ease: `amount += (target - amount) * (1 - exp(-speed*dt))`.
+    let step = 1.0 - (-CUBE_OPEN_SPEED * time.delta_secs()).exp();
+    state.amount += (state.target - state.amount) * step;
+    if (state.amount - state.target).abs() < 0.002 {
+        state.amount = state.target;
+    }
+    let open = smoothstep(state.amount.clamp(0.0, 1.0));
+    // Closed (open→0) folds the faces fully away; open (open→1) lays them flat.
+    let fold = OOT_PAGE_FOLD_RADIANS * (1.0 - open);
+    for (face, mut transform) in &mut faces {
+        apply_face_fold(face, fold, &mut transform);
+    }
+}
+
+/// Generalized port of the demo's `apply_oot_open_fold`: hinge each face about its
+/// bottom edge and fold it outward by `fold` radians.
+///
+/// The demo's n=4 cardinal mapping folds the front/back faces about local X and the
+/// side faces about local Z, with alternating signs. We replicate that for any ring
+/// size by folding about the face's *own* local X axis (the bottom edge is the
+/// hinge), choosing the sign from the index parity so adjacent pages fold to
+/// opposite sides — reading like the demo's page fold while staying generic over N.
+fn apply_face_fold(face: &CubeFace, fold: f32, transform: &mut Transform) {
+    let sign = if face.index % 2 == 0 { 1.0 } else { -1.0 };
+    let fold_rotation = Quat::from_rotation_x(sign * fold);
+    let rotation = face.base_rotation * fold_rotation;
+    // Keep the bottom edge of the page pinned (hinge), exactly like the demo.
+    let hinge_local = Vec3::new(0.0, -face.half_height, 0.0);
+    let hinge_world = face.base_translation + face.base_rotation * hinge_local;
+    let translation = hinge_world - rotation * hinge_local;
+    transform.translation = translation;
+    transform.rotation = rotation;
+    transform.scale = face.base_scale;
+}
+
+/// OoT-style smoothstep ease (matches the demo's `smoothstep`).
+fn smoothstep(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 
