@@ -75,6 +75,10 @@ fn setup_cube(mut commands: Commands) {
         Camera3d::default(),
         Camera {
             order: 8,
+            // Host-gated: OFF until the host activates the menu (e.g. on pause). This
+            // order-8 camera otherwise clears the whole screen to black every frame,
+            // hiding everything the lower-order game cameras drew.
+            is_active: false,
             ..default()
         },
         RenderLayers::layer(0),
@@ -88,7 +92,8 @@ fn setup_cube(mut commands: Commands) {
         MenuRing,
         UiRoot3d,
         Transform::default(),
-        Visibility::Visible,
+        // Host-gated alongside the camera; the host shows it when opening the menu.
+        Visibility::Hidden,
         RenderLayers::layer(0),
     ));
 }
