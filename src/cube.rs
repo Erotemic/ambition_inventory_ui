@@ -106,6 +106,11 @@ pub struct CubeMenuConfig {
     pub draw_edge_frame: bool,
     /// Draw white selection corner-brackets around the selected control (demo look).
     pub draw_selection_corners: bool,
+    /// Draw the left/right page-navigation affordance buttons on each face (the
+    /// L/R "switch subscreen" arrows). Decorative-only in the lib (the host owns
+    /// the actual page cycling via input); they communicate the affordance and
+    /// match the demo's look. Default `true` so both the demo and the game get them.
+    pub draw_nav_arrows: bool,
     /// Camera `order` for the cube's `Camera3d`.
     pub camera_order: isize,
     /// Whether the cube camera clears the screen (game overlay wants `None`).
@@ -129,6 +134,7 @@ impl Default for CubeMenuConfig {
             min_open_scale: 0.64,
             draw_edge_frame: true,
             draw_selection_corners: true,
+            draw_nav_arrows: true,
             // Game-overlay defaults (see module docs in `oot_cube_app.rs`): the
             // cube camera must NOT clear, must NOT start active, and the ring must
             // start hidden — the host gates them on when the menu opens.
@@ -428,6 +434,9 @@ fn render_page_model<PageId, Action>(
     if config.draw_edge_frame {
         spawn_cube_edge_frame(ui, materials, active);
     }
+    if config.draw_nav_arrows {
+        spawn_nav_arrows(ui, materials, active);
+    }
     for node in &model.nodes {
         match node {
             MenuNode::Panel { rect, color, action } => {
@@ -726,6 +735,27 @@ fn spawn_corner_piece(
         MeshMaterial3d(material),
         Pickable::IGNORE,
     ));
+}
+
+/// Draw the left/right page-navigation affordance buttons on a face (the L/R
+/// "switch subscreen" arrows). Ported from the demo's per-face `add_edge_buttons`
+/// (same rects/look), but decorative here: the lib is generic over the host's
+/// `Action`, and the host already owns page cycling via input. They render the
+/// affordance from ONE place so both the demo and the game show them.
+fn spawn_nav_arrows(
+    ui: &mut ChildSpawnerCommands,
+    materials: &mut Assets<StandardMaterial>,
+    active: bool,
+) {
+    // Match the demo's edge-button placement and the unselected Action color.
+    let bg = control_color(MenuControlKind::Action, false, false);
+    let left = MenuRect::new(1.8, 43.5, 7.5, 13.0);
+    let right = MenuRect::new(90.7, 43.5, 7.5, 13.0);
+    spawn_panel_at_depth(ui, materials, left, bg, None::<Action0>, DEPTH_ACTION, active);
+    spawn_panel_at_depth(ui, materials, right, bg, None::<Action0>, DEPTH_ACTION, active);
+    let glyph = Srgba::rgb_u8(242, 234, 200);
+    spawn_text(ui, materials, left.x + left.w * 0.5, left.y + left.h * 0.5, 5.0, "<", TextAlign::Center, glyph, active);
+    spawn_text(ui, materials, right.x + right.w * 0.5, right.y + right.h * 0.5, 5.0, ">", TextAlign::Center, glyph, active);
 }
 
 fn spawn_cube_edge_frame(

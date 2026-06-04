@@ -88,6 +88,11 @@ pub(crate) fn run() {
             min_open_scale: 0.64,
             draw_edge_frame: true,
             draw_selection_corners: true,
+            // The demo keeps its own RICHER interactive L/R edge buttons in its page
+            // model (neighbor-page labels + click/keyboard page-turn via
+            // `add_edge_buttons`), so it opts OUT of the lib's decorative nav arrows
+            // to avoid double-drawing. The game uses the lib arrows (default `true`).
+            draw_nav_arrows: false,
             camera_order: 0,
             camera_clears: true,
             camera_starts_active: true,
