@@ -95,6 +95,9 @@ pub(crate) fn run() {
         })
         .insert_resource(MockDemo::default())
         .insert_resource(MenuShell::default_open())
+        // The demo's HUD overlay (`rebuild_hud_overlay`) reads this; the refactor
+        // dropped the insert, which panicked at runtime (resource does not exist).
+        .insert_resource(MenuShellEffects::default())
         .insert_resource(FpsWindow::default())
         .insert_resource(ActiveMenuPages::<MockPage, MockAction>::default())
         // The ONE canonical cube renderer, consumed identically to the game.
