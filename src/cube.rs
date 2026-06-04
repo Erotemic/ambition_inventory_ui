@@ -120,6 +120,12 @@ pub struct CubeMenuConfig {
     pub camera_starts_active: bool,
     /// Whether the ring starts visible. The game gates this off; the demo shows it.
     pub ring_starts_visible: bool,
+    /// Whether interactive controls are spawned as Bevy-pickable (so `Pointer<*>`
+    /// events fire on them). Hosts that drive their own manual world→screen
+    /// hit-test (the mock demo) set this `false` to keep controls `Pickable::IGNORE`
+    /// and avoid double-handling. The game sets it `true` to use Bevy picking.
+    /// Default `true`.
+    pub pickable_controls: bool,
 }
 
 impl Default for CubeMenuConfig {
@@ -142,6 +148,7 @@ impl Default for CubeMenuConfig {
             camera_clears: false,
             camera_starts_active: false,
             ring_starts_visible: false,
+            pickable_controls: true,
         }
     }
 }
@@ -649,7 +656,10 @@ fn spawn_control<Action>(
             ..Default::default()
         },
     ));
-    if disabled {
+    // Disabled controls never participate in picking. Enabled controls are pickable
+    // only when the host wants Bevy picking (`pickable_controls`); a host with its
+    // own manual hit-test (the demo) keeps them `Pickable::IGNORE`.
+    if disabled || !config.pickable_controls {
         entity.insert(Pickable::IGNORE);
     }
     let draw_corners = config.draw_selection_corners;

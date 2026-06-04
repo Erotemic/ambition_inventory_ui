@@ -97,6 +97,10 @@ pub(crate) fn run() {
             camera_clears: true,
             camera_starts_active: true,
             ring_starts_visible: true,
+            // The demo drives its OWN manual world→screen hit-test (`pointer_hit_test`),
+            // so it opts OUT of Bevy-pickable controls to avoid double-handling. The
+            // game sets this `true` (the default) to use Bevy picking.
+            pickable_controls: false,
         })
         .insert_resource(MockDemo::default())
         .insert_resource(MenuShell::default_open())
