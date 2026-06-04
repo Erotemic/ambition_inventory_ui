@@ -191,7 +191,7 @@ fn spawn_face(
     ));
     face.with_children(|ui| {
         let model = build_page_model(page, demo, page == demo.page);
-        render_page_model(ui, materials, &model);
+        render_page_model(ui, materials, &model, page == demo.page);
     });
 }
 

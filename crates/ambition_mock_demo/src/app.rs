@@ -30,13 +30,18 @@ const CAMERA_LOOK: Vec3 = Vec3::new(0.0, 0.0, 0.0);
 const INSIDE_PAGE_X_FLIP: f32 = -1.0;
 const OOT_PAGE_FOLD_RADIANS: f32 = 1.60;
 const MIN_OPEN_SCALE: f32 = 0.64;
-const DEPTH_BACKGROUND: f32 = -0.05;
-const DEPTH_LARGE_PANEL: f32 = -0.18;
-const DEPTH_CARD: f32 = -0.34;
-const DEPTH_ACTION: f32 = -0.46;
-const DEPTH_EDGE: f32 = -0.82;
-const DEPTH_ICON: f32 = -0.74;
-const DEPTH_TEXT_TOP: f32 = -0.90;
+// Local depth bands on each Lunex face. More-negative values are closer to the
+// pause camera for the inside-the-cube setup. Keep these bands deliberately
+// separated: tiny offsets were not enough and caused visible flicker when the
+// active face or neighboring faces were rotating.
+const DEPTH_BACKGROUND: f32 = -0.04;
+const DEPTH_LARGE_PANEL: f32 = -0.16;
+const DEPTH_CARD: f32 = -0.32;
+const DEPTH_ACTION: f32 = -0.50;
+const DEPTH_EDGE: f32 = -0.68;
+const DEPTH_ICON: f32 = -0.78;
+const DEPTH_TEXT_TOP: f32 = -0.96;
+const DEPTH_SELECTION: f32 = -1.12;
 const DEPTH_HUD_PANEL: f32 = -1.35;
 const DEPTH_HUD_TEXT: f32 = -1.70;
 const FONT_FAMILY: &str = "DejaVu Sans";
@@ -48,7 +53,8 @@ const HUD_RENDER_LAYER: usize = 1;
 const ITEM_GRID_COLS: usize = 6;
 const ITEM_GRID_ROWS: usize = 4;
 const ITEM_COUNT: usize = ITEM_GRID_COLS * ITEM_GRID_ROWS;
-const DETAIL_WRAP_COLS: usize = 64;
+const DETAIL_WRAP_COLS: usize = 18;
+const STATUS_WRAP_COLS: usize = 56;
 const DETAIL_VISIBLE_LINES: usize = 5;
 
 pub(crate) fn run() {

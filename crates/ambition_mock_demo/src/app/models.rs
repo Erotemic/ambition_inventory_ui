@@ -20,7 +20,9 @@ fn build_page_model(page: MockPage, demo: &MockDemo, active_face: bool) -> MenuP
         format!("Ambition {}", page.label()),
         page_background(page),
     );
-    model.panel(MenuRect::new(0.0, 0.0, 100.0, 100.0), page_background(page), None);
+    // The renderer already draws exactly one full-page background at a dedicated
+    // depth. Do not add another full-page panel here; two identical coplanar
+    // planes were the most obvious source of active-face flicker.
     add_edge_buttons(&mut model, demo, active_face);
     match page {
         MockPage::Items => add_items_page(&mut model, demo, active_face),
@@ -110,7 +112,9 @@ fn add_items_page(model: &mut MenuPageModel<MockPage, MockAction>, demo: &MockDe
 
     model.text(79.6, 50.0, 2.6, "SELECTED", MenuTextAlign::Center, MenuColor::rgba(1.0, 0.84, 0.38, 1.0));
     for (line_idx, line) in selected_detail_lines(demo).into_iter().enumerate() {
-        model.text(72.0, 55.5 + line_idx as f32 * 3.6, 1.85, line, MenuTextAlign::Left, MenuColor::rgba(0.88, 0.94, 1.0, 0.96));
+        // Keep the details inside the fixed right-hand panel. Text3d does not
+        // clip to a parent rectangle, so the model must wrap aggressively.
+        model.text(79.6, 55.5 + line_idx as f32 * 3.5, 1.52, line, MenuTextAlign::Center, MenuColor::rgba(0.88, 0.94, 1.0, 0.96));
     }
     let total_lines = detail_lines(demo, demo.selected_index()).len();
     if total_lines > DETAIL_VISIBLE_LINES {
@@ -122,9 +126,9 @@ fn add_items_page(model: &mut MenuPageModel<MockPage, MockAction>, demo: &MockDe
         model.panel(MenuRect::new(86.2, top, 1.2, 14.5 * frac), MenuColor::rgba(1.0, 0.78, 0.28, 0.88), None);
     }
 
-    model.text(12.5, 83.0, 2.1, "Last host effect", MenuTextAlign::Left, MenuColor::rgba(1.0, 0.84, 0.38, 1.0));
-    for (idx, line) in wrap_text(&demo.status, 82).into_iter().take(3).enumerate() {
-        model.text(12.5, 87.0 + idx as f32 * 3.2, 1.85, line, MenuTextAlign::Left, MenuColor::rgba(0.82, 1.0, 0.82, 0.96));
+    model.text(49.85, 83.0, 2.1, "Last host effect", MenuTextAlign::Center, MenuColor::rgba(1.0, 0.84, 0.38, 1.0));
+    for (idx, line) in wrap_text(&demo.status, STATUS_WRAP_COLS).into_iter().take(3).enumerate() {
+        model.text(49.85, 87.0 + idx as f32 * 3.2, 1.72, line, MenuTextAlign::Center, MenuColor::rgba(0.82, 1.0, 0.82, 0.96));
     }
 }
 
@@ -257,6 +261,7 @@ fn detail_lines(demo: &MockDemo, idx: usize) -> Vec<String> {
 }
 
 fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(4);
     let mut out = Vec::new();
     for paragraph in text.split('\n') {
         if paragraph.trim().is_empty() {
@@ -264,19 +269,43 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
             continue;
         }
         let mut line = String::new();
-        for word in paragraph.split_whitespace() {
-            let needs_space = !line.is_empty();
-            let next_len = line.len() + word.len() + usize::from(needs_space);
-            if next_len > width && !line.is_empty() {
-                out.push(line);
-                line = String::new();
+        for raw_word in paragraph.split_whitespace() {
+            let mut pieces = split_long_word(raw_word, width);
+            for word in pieces.drain(..) {
+                let needs_space = !line.is_empty();
+                let next_len = line.chars().count() + word.chars().count() + usize::from(needs_space);
+                if next_len > width && !line.is_empty() {
+                    out.push(line);
+                    line = String::new();
+                }
+                if !line.is_empty() {
+                    line.push(' ');
+                }
+                line.push_str(&word);
             }
-            if !line.is_empty() {
-                line.push(' ');
-            }
-            line.push_str(word);
         }
         out.push(line);
+    }
+    out
+}
+
+fn split_long_word(word: &str, width: usize) -> Vec<String> {
+    if word.chars().count() <= width {
+        return vec![word.to_string()];
+    }
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let chunk_width = width.saturating_sub(1).max(3);
+    for ch in word.chars() {
+        if current.chars().count() >= chunk_width {
+            current.push('-');
+            out.push(current);
+            current = String::new();
+        }
+        current.push(ch);
+    }
+    if !current.is_empty() {
+        out.push(current);
     }
     out
 }
