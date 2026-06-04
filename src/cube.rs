@@ -144,7 +144,16 @@ fn rebuild_cube_faces<PageId, Action>(
                     active,
                 },
                 UiRoot3d,
-                Transform::from_translation(pos).with_rotation(rot),
+                // bevy_lunex needs a layout root + a Dimension on each face for the
+                // child UiLayout::window() planes to resolve their Rl/Rh sizes.
+                // Without these the planes get zero size and the cube renders black.
+                UiLayoutRoot::new_3d(),
+                Dimension::from((geo.page_width, geo.page_height)),
+                Transform::from_translation(pos)
+                    .with_rotation(rot)
+                    // Inside-of-cube X flip so face content reads correctly,
+                    // matching the demo's INSIDE_PAGE_X_FLIP = -1.0.
+                    .with_scale(Vec3::new(-1.0, 1.0, 1.0)),
                 Visibility::Visible,
                 RenderLayers::layer(0),
             ));
