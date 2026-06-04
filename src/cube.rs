@@ -91,7 +91,11 @@ fn setup_cube(
             ..default()
         },
         RenderLayers::layer(0),
-        Msaa::Off,
+        // NO explicit Msaa: a Camera3d overlaying a 2D camera on the SAME window must
+        // share its sample count, or it renders its clear but drops all geometry. The
+        // host's Camera2d uses the default (Msaa::Sample4); omitting Msaa here inherits
+        // that same default so they match. (The demo forced Msaa::Off, but it has no
+        // 2D camera to mismatch against.)
         Transform::from_translation(Vec3::new(0.0, geo.camera_y, -geo.camera_distance))
             .looking_at(Vec3::new(0.0, geo.look_y, 0.0), Vec3::Y),
     ));
