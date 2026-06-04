@@ -121,9 +121,11 @@ fn setup_cube(mut commands: Commands) {
             // order-8 camera otherwise clears the whole screen to black every frame,
             // hiding everything the lower-order game cameras drew.
             is_active: false,
-            // Dark backdrop behind the cube — an OoT-style pause room, matching the
-            // demo's near-black clear.
-            clear_color: ClearColorConfig::Custom(Color::srgb(0.008, 0.009, 0.020)),
+            // Transparent clear (Option 1 overlay): the host keeps its 2D camera
+            // active, so the live game world shows through behind the cube instead of
+            // a solid backdrop. (Was a near-black "pause room" clear when the cube was
+            // the sole camera.)
+            clear_color: ClearColorConfig::None,
             ..default()
         },
         RenderLayers::layer(0),
