@@ -371,24 +371,6 @@ impl MockDemo {
 }
 
 #[derive(Resource, Clone, Debug)]
-struct MenuAnimation {
-    current_angle: f32,
-    target_angle: f32,
-}
-
-impl Default for MenuAnimation {
-    fn default() -> Self {
-        Self { current_angle: 0.0, target_angle: 0.0 }
-    }
-}
-
-impl MenuAnimation {
-    fn set_page(&mut self, page: MockPage) {
-        self.target_angle = -page.index() as f32 * FRAC_PI_2;
-    }
-}
-
-#[derive(Resource, Clone, Debug)]
 struct MenuShell {
     openness: f32,
     target_open: bool,
@@ -423,17 +405,9 @@ impl MenuShell {
 }
 
 #[derive(Component)]
-struct MenuRing;
-#[derive(Component)]
-struct LunexFaceRoot;
-#[derive(Component)]
-struct PageFace(MockPage);
-#[derive(Component)]
 struct FpsDebugText;
 #[derive(Component)]
 struct HudOverlayRoot;
-#[derive(Component)]
-struct MainPauseCamera;
 #[derive(Component)]
 struct DummyUnpausedOverlay;
 

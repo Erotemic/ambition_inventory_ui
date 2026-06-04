@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-use std::f32::consts::{FRAC_PI_2, PI};
 use std::sync::Arc;
 
 use bevy::asset::AssetPlugin;
@@ -11,17 +10,17 @@ use bevy::window::{PresentMode, PrimaryWindow};
 use bevy::winit::WinitSettings;
 use bevy_lunex::prelude::*;
 
+use ambition_inventory_ui::cube::{
+    CubeFace, CubeMenuConfig, CubeMenuPlugin, CubeOpenState, CubePauseCamera,
+};
 use ambition_inventory_ui::{
-    ActiveMenuPages, AmbitionMenuControl, AmbitionMenuPage, AmbitionMenuRoot,
-    InventoryItemNode, InventorySlotId, ItemsOnlyPageSpec, MenuColor, MenuControlKind,
-    MenuFocusKey, MenuNode, MenuOpenCloseStyle, MenuPageModel, MenuRect, MenuShellConfig,
-    MenuShellEffect, MenuShellEffects, MenuShellPhase, MenuTextAlign, MenuVisualState,
+    ActiveMenuPages, AmbitionMenuControl, AmbitionMenuPage, InventoryItemNode, InventorySlotId,
+    ItemsOnlyPageSpec, MenuColor, MenuControlKind, MenuCubeGeometry, MenuFocusKey, MenuNode,
+    MenuOpenCloseStyle, MenuPageModel, MenuRect, MenuShellEffect, MenuShellEffects,
+    MenuShellPhase, MenuTextAlign, MenuVisualState,
 };
 
-// These are intentionally copied from crates/oot_pause_demo/src/app.rs. The mock
-// demo is supposed to exercise the exact same inside-the-cube shell geometry,
-// page ring, and pause/unpause fold before Ambition's real inventory data is
-// connected.
+// Inside-the-cube shell geometry, shared with the lib via `CubeMenuConfig`.
 const PAGE_RADIUS: f32 = 2.85;
 const PAGE_W: f32 = PAGE_RADIUS * 2.0;
 const PAGE_H: f32 = PAGE_W * (160.0 / 240.0);
@@ -29,19 +28,7 @@ const CAMERA_EYE: Vec3 = Vec3::new(0.0, 0.0, -2.20);
 const CAMERA_LOOK: Vec3 = Vec3::new(0.0, 0.0, 0.0);
 const INSIDE_PAGE_X_FLIP: f32 = -1.0;
 const OOT_PAGE_FOLD_RADIANS: f32 = 1.60;
-const MIN_OPEN_SCALE: f32 = 0.64;
-// Local depth bands on each Lunex face. More-negative values are closer to the
-// pause camera for the inside-the-cube setup. Keep these bands deliberately
-// separated: tiny offsets were not enough and caused visible flicker when the
-// active face or neighboring faces were rotating.
-const DEPTH_BACKGROUND: f32 = -0.04;
-const DEPTH_LARGE_PANEL: f32 = -0.16;
-const DEPTH_CARD: f32 = -0.32;
-const DEPTH_ACTION: f32 = -0.50;
-const DEPTH_EDGE: f32 = -0.68;
-const DEPTH_ICON: f32 = -0.78;
-const DEPTH_TEXT_TOP: f32 = -0.96;
-const DEPTH_SELECTION: f32 = -1.12;
+// HUD-overlay depth bands (app-only; the cube's own bands live in the lib).
 const DEPTH_HUD_PANEL: f32 = -1.35;
 const DEPTH_HUD_TEXT: f32 = -1.70;
 const FONT_FAMILY: &str = "DejaVu Sans";
@@ -79,7 +66,6 @@ pub(crate) fn run() {
                 ..default()
             }))
         .insert_resource(WinitSettings::continuous())
-        .add_plugins(UiLunexPlugins)
         .insert_resource(ClearColor(Color::srgb(0.008, 0.009, 0.020)))
         .insert_resource(LoadFonts {
             font_directories: vec![
@@ -89,23 +75,35 @@ pub(crate) fn run() {
             ],
             ..Default::default()
         })
+        // Standalone-demo cube config: the demo owns the window, so its cube
+        // camera clears (dark room), starts active, and the ring starts visible.
+        // The game keeps the lib defaults (overlay: no clear / gated off).
+        .insert_resource(CubeMenuConfig {
+            geometry: MenuCubeGeometry::oot_like(PAGE_RADIUS),
+            fold_radians: OOT_PAGE_FOLD_RADIANS,
+            open_close_speed: 8.0,
+            page_rotate_speed: 5.2,
+            open_close_style: MenuOpenCloseStyle::OotPageFold,
+            inside_x_flip: INSIDE_PAGE_X_FLIP,
+            min_open_scale: 0.64,
+            draw_edge_frame: true,
+            draw_selection_corners: true,
+            camera_order: 0,
+            camera_clears: true,
+            camera_starts_active: true,
+            ring_starts_visible: true,
+        })
         .insert_resource(MockDemo::default())
-        .insert_resource(MenuAnimation::default())
         .insert_resource(MenuShell::default_open())
-        .insert_resource(MenuShellEffects::default())
         .insert_resource(FpsWindow::default())
         .insert_resource(ActiveMenuPages::<MockPage, MockAction>::default())
-        .insert_resource(MenuShellConfig {
-            open_close_style: MenuOpenCloseStyle::OotPageFold,
-            page_rotate_speed: 5.2,
-            open_close_speed: 8.0,
-            ..Default::default()
-        })
-        .add_systems(Startup, setup)
+        // The ONE canonical cube renderer, consumed identically to the game.
+        .add_plugins(CubeMenuPlugin::<MockPage, MockAction>::default())
+        .add_systems(Startup, setup_app_shell)
         .add_systems(Update, publish_mock_page_models)
         .add_systems(Update, menu_toggle_input)
         .add_systems(Update, (keyboard_navigation, mouse_navigation, pointer_hit_test))
-        .add_systems(Update, (rebuild_lunex_faces, animate_menu_ring, update_fps_debug_overlay, sync_dummy_unpaused_overlay).chain())
+        .add_systems(Update, (drive_cube_open, rebuild_hud_overlay, update_fps_debug_overlay, sync_dummy_unpaused_overlay).chain())
         .run();
 }
 

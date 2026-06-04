@@ -12,11 +12,10 @@ fn menu_toggle_input(keys: Res<ButtonInput<KeyCode>>, mut shell: ResMut<MenuShel
     }
 }
 
-fn keyboard_navigation(keys: Res<ButtonInput<KeyCode>>, shell: Res<MenuShell>, mut demo: ResMut<MockDemo>, mut menu: ResMut<MenuAnimation>) {
+fn keyboard_navigation(keys: Res<ButtonInput<KeyCode>>, shell: Res<MenuShell>, mut demo: ResMut<MockDemo>) {
     if !shell.is_interactive() {
         return;
     }
-    let before_page = demo.page;
     if keys.just_pressed(KeyCode::KeyQ) || keys.just_pressed(KeyCode::PageUp) {
         demo.turn_page(PageTurn::ViewerLeft);
     }
@@ -59,26 +58,19 @@ fn keyboard_navigation(keys: Res<ButtonInput<KeyCode>>, shell: Res<MenuShell>, m
     if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter) || keys.just_pressed(KeyCode::Space) {
         demo.activate_selected();
     }
-    if demo.page != before_page {
-        menu.set_page(demo.page);
-    }
 }
 
-fn mouse_navigation(mut wheel: MessageReader<MouseWheel>, shell: Res<MenuShell>, mut demo: ResMut<MockDemo>, mut menu: ResMut<MenuAnimation>) {
+fn mouse_navigation(mut wheel: MessageReader<MouseWheel>, shell: Res<MenuShell>, mut demo: ResMut<MockDemo>) {
     if !shell.is_interactive() {
         for _ in wheel.read() {}
         return;
     }
-    let before_page = demo.page;
     for ev in wheel.read() {
         if ev.y > 0.0 {
             demo.turn_page(PageTurn::ViewerRight);
         } else if ev.y < 0.0 {
             demo.turn_page(PageTurn::ViewerLeft);
         }
-    }
-    if demo.page != before_page {
-        menu.set_page(demo.page);
     }
 }
 
@@ -110,20 +102,18 @@ fn pointer_hit_test(
     windows: Query<&Window, With<PrimaryWindow>>,
     buttons: Res<ButtonInput<MouseButton>>,
     mut touches: MessageReader<TouchInput>,
-    camera_query: Query<(&Camera, &GlobalTransform), With<MainPauseCamera>>,
-    face_query: Query<(&PageFace, &GlobalTransform)>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<CubePauseCamera>>,
+    face_query: Query<(&AmbitionMenuPage<MockPage>, &GlobalTransform), With<CubeFace>>,
     hud_query: Query<&GlobalTransform, With<HudOverlayRoot>>,
     shell: Res<MenuShell>,
     mut demo: ResMut<MockDemo>,
-    mut menu: ResMut<MenuAnimation>,
     mut last_mouse_hover: Local<Option<MockAction>>,
 ) {
     if !shell.is_interactive() { return; }
     let Ok(window) = windows.single() else { return; };
     let Ok((camera, camera_transform)) = camera_query.single() else { return; };
-    let Some((_, face_transform)) = face_query.iter().find(|(face, _)| face.0 == demo.page) else { return; };
+    let Some((_, face_transform)) = face_query.iter().find(|(face, _)| face.id == demo.page) else { return; };
     let hud_transform = hud_query.single().ok();
-    let before_page = demo.page;
 
     if let Some(pos) = window.cursor_position() {
         let hovered = hud_transform
@@ -144,9 +134,6 @@ fn pointer_hit_test(
                 .or_else(|| hit_test_targets(touch.position, &active_page_hit_targets(&demo), camera, camera_transform, face_transform));
             if let Some(action) = action { demo.click(action); }
         }
-    }
-    if demo.page != before_page {
-        menu.set_page(demo.page);
     }
 }
 

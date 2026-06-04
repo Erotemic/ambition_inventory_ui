@@ -1,4 +1,10 @@
-fn setup(
+// App shell for the standalone mock demo. The cube itself (camera, ring, faces,
+// fold, rotation, page rendering) lives in `ambition_inventory_ui::cube` and is
+// driven via `ActiveMenuPages` + `CubeOpenState`. Everything here is app-only:
+// the HUD overlay, the FPS counter, the dummy-unpaused banner, and the bridge
+// from the demo's `MenuShell` to the lib's `CubeOpenState`.
+
+fn setup_app_shell(
     mut commands: Commands,
     mut materials: ResMut<Assets<StandardMaterial>>,
     demo: Res<MockDemo>,
@@ -8,15 +14,8 @@ fn setup(
         DirectionalLight { illuminance: 2800.0, shadows_enabled: false, ..default() },
         Transform::from_xyz(1.5, 3.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
-    commands.spawn((
-        Name::new("Ambition mock pause cube camera"),
-        MainPauseCamera,
-        Camera3d::default(),
-        Camera { order: 0, ..default() },
-        RenderLayers::layer(0),
-        Msaa::Off,
-        Transform::from_translation(CAMERA_EYE).looking_at(CAMERA_LOOK, Vec3::Y),
-    ));
+    // App-only HUD overlay camera (its own render layer). The cube's pause camera
+    // is spawned by the lib plugin.
     commands.spawn((
         Name::new("Ambition mock HUD overlay camera"),
         Camera3d::default(),
@@ -45,21 +44,6 @@ fn setup(
         },
         Visibility::Hidden,
     ));
-
-    let ring = commands
-        .spawn((
-            Name::new("OoT-style Lunex pause room - Ambition mock"),
-            AmbitionMenuRoot,
-            MenuRing,
-            UiRoot3d,
-            Transform::default(),
-            Visibility::Visible,
-            RenderLayers::layer(0),
-        ))
-        .id();
-    commands.entity(ring).with_children(|ring| {
-        spawn_all_faces(ring, &demo, &mut materials);
-    });
     spawn_hud_overlay(&mut commands, &demo, &shell, &mut materials);
 }
 
@@ -95,41 +79,23 @@ fn update_fps_debug_overlay(
     }
 }
 
-fn rebuild_lunex_faces(
+/// Rebuild the app-only HUD overlay when the demo or shell changes.
+fn rebuild_hud_overlay(
     mut commands: Commands,
     mut materials: ResMut<Assets<StandardMaterial>>,
     demo: Res<MockDemo>,
     shell: Res<MenuShell>,
-    ring_query: Query<Entity, With<MenuRing>>,
-    face_query: Query<(Entity, &PageFace), With<LunexFaceRoot>>,
     hud_query: Query<Entity, With<HudOverlayRoot>>,
     mut last_revision: Local<Option<u64>>,
-    mut last_page: Local<Option<MockPage>>,
 ) {
-    if *last_revision == Some(demo.revision) {
+    if !shell.is_changed() && *last_revision == Some(demo.revision) {
         return;
     }
-    let Ok(ring) = ring_query.single() else { return; };
-    let page_changed = last_page.map(|p| p != demo.page).unwrap_or(true);
-    if page_changed {
-        for (entity, _) in &face_query {
-            commands.entity(entity).despawn();
-        }
-        commands.entity(ring).with_children(|ring| spawn_all_faces(ring, &demo, &mut materials));
-    } else {
-        for (entity, face) in &face_query {
-            if face.0 == demo.page {
-                commands.entity(entity).despawn();
-            }
-        }
-        commands.entity(ring).with_children(|ring| spawn_face(ring, demo.page, &demo, &mut materials));
-    }
+    *last_revision = Some(demo.revision);
     for entity in &hud_query {
         commands.entity(entity).despawn();
     }
     spawn_hud_overlay(&mut commands, &demo, &shell, &mut materials);
-    *last_revision = Some(demo.revision);
-    *last_page = Some(demo.page);
 }
 
 fn spawn_hud_overlay(
@@ -147,117 +113,30 @@ fn spawn_hud_overlay(
         Dimension::from((PAGE_W, PAGE_H)),
         Transform::from_translation(Vec3::new(0.0, 0.0, PAGE_RADIUS - HUD_Z_OFFSET_TOWARD_CAMERA))
             .with_scale(Vec3::new(HUD_SCREEN_X_FLIP, 1.0, 1.0)),
-        Visibility::Visible,
+        if shell.is_visible() { Visibility::Visible } else { Visibility::Hidden },
         RenderLayers::layer(HUD_RENDER_LAYER),
     )).with_children(|ui| render_overlay_model(ui, materials, &model));
 }
 
-fn spawn_all_faces(
-    ring: &mut ChildSpawnerCommands,
-    demo: &MockDemo,
-    materials: &mut Assets<StandardMaterial>,
-) {
-    for page in visible_face_pages(demo.page) {
-        spawn_face(ring, page, demo, materials);
-    }
-}
-
-fn visible_face_pages(active: MockPage) -> [MockPage; 3] {
-    [
-        MockDemo::page_on_viewer_left(active),
-        active,
-        MockDemo::page_on_viewer_right(active),
-    ]
-}
-
-fn spawn_face(
-    ring: &mut ChildSpawnerCommands,
-    page: MockPage,
-    demo: &MockDemo,
-    materials: &mut Assets<StandardMaterial>,
-) {
-    let (translation, rotation) = page_face_transform(page);
-    let mut face = ring.spawn((
-        Name::new(format!("{} Ambition mock face", page.label())),
-        LunexFaceRoot,
-        PageFace(page),
-        AmbitionMenuPage { id: page, active: page == demo.page },
-        UiRoot3d,
-        UiLayoutRoot::new_3d(),
-        Dimension::from((PAGE_W, PAGE_H)),
-        Transform::from_translation(translation)
-            .with_rotation(rotation)
-            .with_scale(Vec3::new(INSIDE_PAGE_X_FLIP, 1.0, 1.0)),
-    ));
-    face.with_children(|ui| {
-        let model = build_page_model(page, demo, page == demo.page);
-        render_page_model(ui, materials, &model, page == demo.page);
-    });
-}
-
-fn page_face_transform(page: MockPage) -> (Vec3, Quat) {
-    match page {
-        MockPage::Items => (Vec3::new(0.0, 0.0, PAGE_RADIUS), Quat::IDENTITY),
-        MockPage::Map => (Vec3::new(PAGE_RADIUS, 0.0, 0.0), Quat::from_rotation_y(FRAC_PI_2)),
-        MockPage::Quest => (Vec3::new(0.0, 0.0, -PAGE_RADIUS), Quat::from_rotation_y(PI)),
-        MockPage::System => (Vec3::new(-PAGE_RADIUS, 0.0, 0.0), Quat::from_rotation_y(-FRAC_PI_2)),
-    }
-}
-
-fn reset_face_transform(page: MockPage, transform: &mut Transform) {
-    let (translation, rotation) = page_face_transform(page);
-    transform.translation = translation;
-    transform.rotation = rotation;
-    transform.scale = Vec3::new(INSIDE_PAGE_X_FLIP, 1.0, 1.0);
-}
-
-fn apply_oot_open_fold(page: MockPage, fold: f32, transform: &mut Transform) {
-    let (base_translation, base_rotation) = page_face_transform(page);
-    let fold_rotation = match page {
-        MockPage::Items => Quat::from_rotation_x(fold),
-        MockPage::Quest => Quat::from_rotation_x(-fold),
-        MockPage::Map => Quat::from_rotation_z(-fold),
-        MockPage::System => Quat::from_rotation_z(fold),
-    };
-    let rotation = fold_rotation * base_rotation;
-    let hinge_local = Vec3::new(0.0, -PAGE_H * 0.5, 0.0);
-    let hinge_world = base_translation + base_rotation * hinge_local;
-    let translation = hinge_world - rotation * hinge_local;
-    transform.translation = translation;
-    transform.rotation = rotation;
-    transform.scale = Vec3::new(INSIDE_PAGE_X_FLIP, 1.0, 1.0);
-}
-
-fn animate_menu_ring(
-    time: Res<Time>,
-    config: Res<MenuShellConfig>,
-    mut menu: ResMut<MenuAnimation>,
+/// Bridge the demo's `MenuShell` to the lib's cube: ease the open target, push
+/// shell lifecycle effects, and toggle the HUD overlay visibility. The lib owns
+/// the ring rotation + fold; this only feeds it the open target and reads back
+/// the eased amount to gate the HUD.
+fn drive_cube_open(
+    mut open_state: ResMut<CubeOpenState>,
     mut shell: ResMut<MenuShell>,
     mut effects: ResMut<MenuShellEffects>,
     mut last_phase: Local<Option<MenuShellPhase>>,
-    mut ring_query: Query<(&mut Transform, &mut Visibility), (With<MenuRing>, Without<LunexFaceRoot>)>,
-    mut face_query: Query<(&PageFace, &mut Transform), (With<LunexFaceRoot>, Without<MenuRing>)>,
-    mut hud_query: Query<(&mut Transform, &mut Visibility), (With<HudOverlayRoot>, Without<MenuRing>, Without<LunexFaceRoot>)>,
+    mut hud_query: Query<&mut Visibility, With<HudOverlayRoot>>,
 ) {
-    let Ok((mut transform, mut visibility)) = ring_query.single_mut() else { return; };
-    let delta = shortest_angle_delta(menu.current_angle, menu.target_angle);
-    let rotate_step = 1.0 - (-config.page_rotate_speed * time.delta_secs()).exp();
-    menu.current_angle += delta * rotate_step;
-    if delta.abs() < 0.001 {
-        menu.current_angle = menu.target_angle;
-    }
-    let target = if shell.target_open { 1.0 } else { 0.0 };
-    let open_step = 1.0 - (-config.open_close_speed * time.delta_secs()).exp();
-    shell.openness += (target - shell.openness) * open_step;
-    if (shell.openness - target).abs() < 0.002 {
-        shell.openness = target;
-    }
-    *visibility = if shell.is_visible() { Visibility::Visible } else { Visibility::Hidden };
-    for (mut hud_transform, mut hud_visibility) in &mut hud_query {
-        *hud_visibility = if shell.is_visible() { Visibility::Visible } else { Visibility::Hidden };
-        hud_transform.translation = Vec3::new(0.0, 0.0, PAGE_RADIUS - HUD_Z_OFFSET_TOWARD_CAMERA);
-        hud_transform.scale = Vec3::new(HUD_SCREEN_X_FLIP, 1.0, 1.0);
-        hud_transform.rotation = Quat::IDENTITY;
+    // Feed the open target to the lib (it eases CubeOpenState.amount toward it).
+    open_state.target = if shell.target_open { 1.0 } else { 0.0 };
+    // Mirror the eased amount back into the shell so phase()/is_visible() track
+    // the lib's animation.
+    shell.openness = open_state.amount;
+    let visible = shell.is_visible();
+    for mut hud_visibility in &mut hud_query {
+        *hud_visibility = if visible { Visibility::Visible } else { Visibility::Hidden };
     }
     let phase = shell.phase();
     if *last_phase != Some(phase) {
@@ -268,26 +147,6 @@ fn animate_menu_ring(
             MenuShellPhase::Closed => MenuShellEffect::Closed,
         });
         *last_phase = Some(phase);
-    }
-    let open = smoothstep(shell.openness.clamp(0.0, 1.0));
-    transform.rotation = Quat::from_rotation_y(menu.current_angle);
-    match config.open_close_style {
-        MenuOpenCloseStyle::SmoothScale => {
-            let scale = MIN_OPEN_SCALE + (1.0 - MIN_OPEN_SCALE) * open;
-            transform.scale = Vec3::splat(scale);
-            transform.translation = Vec3::new(0.0, -0.05 * (1.0 - open), -0.42 * (1.0 - open));
-            for (face, mut t) in &mut face_query {
-                reset_face_transform(face.0, &mut t);
-            }
-        }
-        MenuOpenCloseStyle::OotPageFold => {
-            transform.scale = Vec3::ONE;
-            transform.translation = Vec3::new(0.0, -0.10 * (1.0 - open), 0.0);
-            let fold = OOT_PAGE_FOLD_RADIANS * (1.0 - open);
-            for (face, mut t) in &mut face_query {
-                apply_oot_open_fold(face.0, fold, &mut t);
-            }
-        }
     }
 }
 
@@ -301,16 +160,6 @@ fn sync_dummy_unpaused_overlay(
     for mut visibility in &mut overlays {
         *visibility = if shell.is_visible() { Visibility::Hidden } else { Visibility::Visible };
     }
-}
-
-fn smoothstep(t: f32) -> f32 {
-    let t = t.clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
-
-fn shortest_angle_delta(current: f32, target: f32) -> f32 {
-    let two_pi = PI * 2.0;
-    (target - current + PI).rem_euclid(two_pi) - PI
 }
 
 fn page_pct_to_local(x: f32, y: f32) -> Vec3 {
