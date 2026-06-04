@@ -38,10 +38,6 @@ pub struct MenuRing;
 #[derive(Component)]
 pub struct CubePauseCamera;
 
-/// DEBUG (#31): marks the diagnostic box so the probe can report its visibility.
-#[derive(Component)]
-struct CubeDebugMarker;
-
 /// Plugin: spawns the cube camera + ring and rebuilds faces from
 /// `ActiveMenuPages<PageId, Action>`. Add once with the host's page/action types.
 pub struct CubeMenuPlugin<PageId, Action> {
@@ -66,20 +62,12 @@ where
             .add_systems(Startup, setup_cube)
             .add_systems(
                 Update,
-                (
-                    rebuild_cube_faces::<PageId, Action>,
-                    animate_cube_ring,
-                    log_cube_probe,
-                ),
+                (rebuild_cube_faces::<PageId, Action>, animate_cube_ring),
             );
     }
 }
 
-fn setup_cube(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
+fn setup_cube(mut commands: Commands) {
     let geo = MenuCubeGeometry::default();
     commands.spawn((
         Name::new("Cube pause camera"),
@@ -91,11 +79,9 @@ fn setup_cube(
             // order-8 camera otherwise clears the whole screen to black every frame,
             // hiding everything the lower-order game cameras drew.
             is_active: false,
-            // DEBUG (#31): distinctive dark-purple clear so an active-but-empty cube
-            // reads as purple, not black — this separates "camera off/covered" (you
-            // see the game, not purple) from "camera renders but no faces" (purple,
-            // no content). Revert to ClearColorConfig::default() once it works.
-            clear_color: ClearColorConfig::Custom(Color::srgb(0.12, 0.0, 0.18)),
+            // Dark backdrop behind the cube — an OoT-style pause room, matching the
+            // demo's near-black clear.
+            clear_color: ClearColorConfig::Custom(Color::srgb(0.008, 0.009, 0.020)),
             ..default()
         },
         RenderLayers::layer(0),
@@ -106,23 +92,6 @@ fn setup_cube(
         // 2D camera to mismatch against.)
         Transform::from_translation(Vec3::new(0.0, geo.camera_y, -geo.camera_distance))
             .looking_at(Vec3::new(0.0, geo.look_y, 0.0), Vec3::Y),
-    ));
-    // DEBUG (#31): a bright unlit box dead-centre in the cube camera's view. If this
-    // shows (a pink box on purple) but the lunex faces don't, the 3D pipeline +
-    // camera are fine and the bug is in the bevy_lunex face/layout/material path.
-    // If even this is missing, the camera isn't active or is being covered. Remove
-    // once faces render.
-    commands.spawn((
-        Name::new("Cube DEBUG marker"),
-        CubeDebugMarker,
-        Mesh3d(meshes.add(Cuboid::new(1.5, 1.5, 1.5))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(1.0, 0.1, 0.8),
-            unlit: true,
-            ..default()
-        })),
-        Transform::from_xyz(0.0, 0.0, 0.0),
-        RenderLayers::layer(0),
     ));
     commands.spawn((
         Name::new("Cube menu ring"),
@@ -217,42 +186,6 @@ fn animate_cube_ring(time: Res<Time>, mut ring: Query<&mut Transform, With<MenuR
     t.rotation = t.rotation.normalize();
 }
 
-/// DEBUG (#31): one-shot-per-activation probe — logs where the camera + diagnostic
-/// box actually are and whether the renderer considers the box visible. Distinguishes
-/// a frustum/layer problem (`ViewVisibility=false`) from a deeper pipeline problem
-/// (`ViewVisibility=true` but still nothing draws), and confirms the meshes exist.
-fn log_cube_probe(
-    cams: Query<(&GlobalTransform, &Camera), With<CubePauseCamera>>,
-    marker: Query<(&GlobalTransform, &ViewVisibility), With<CubeDebugMarker>>,
-    meshes: Query<(), With<Mesh3d>>,
-    mut logged: Local<bool>,
-) {
-    let Ok((cam_gt, cam)) = cams.single() else {
-        return;
-    };
-    if !cam.is_active {
-        *logged = false;
-        return;
-    }
-    if *logged {
-        return;
-    }
-    *logged = true;
-    let cpos = cam_gt.translation();
-    let cfwd = cam_gt.forward();
-    match marker.single() {
-        Ok((mgt, vv)) => info!(
-            "cube probe: camera at {cpos:?} forward {cfwd:?}; box at {:?} ViewVisibility={}; total Mesh3d entities={}",
-            mgt.translation(),
-            vv.get(),
-            meshes.iter().count()
-        ),
-        Err(_) => info!(
-            "cube probe: camera at {cpos:?} forward {cfwd:?}; NO box entity found; total Mesh3d entities={}",
-            meshes.iter().count()
-        ),
-    }
-}
 
 fn render_page_model<PageId, Action>(
     ui: &mut ChildSpawnerCommands,
