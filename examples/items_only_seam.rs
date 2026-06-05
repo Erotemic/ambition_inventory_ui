@@ -1,6 +1,4 @@
-use ambition_inventory_ui::{
-    InventoryItemNode, InventorySlotId, ItemsOnlyPageSpec, MenuNode,
-};
+use ambition_inventory_ui::{InventoryItemNode, InventorySlotId, ItemsOnlyPageSpec, MenuNode};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DemoPage {

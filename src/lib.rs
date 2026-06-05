@@ -228,8 +228,7 @@ impl<PageId, Action> MenuPageModel<PageId, Action> {
         selected: bool,
         important: bool,
         action: Option<Action>,
-    )
-    where
+    ) where
         I: Into<String>,
     {
         self.nodes.push(MenuNode::Control {
@@ -863,7 +862,11 @@ mod tests {
     fn items_page_builds_actionable_owned_cells() {
         let page = ItemsOnlyPageSpec::new(Page::Items, "Items")
             .with_cell(InventoryItemNode::new(0, "Health Cell").action(Action::UseHealth))
-            .with_cell(InventoryItemNode::new(1, "Axe").equipped(true).action(Action::EquipAxe))
+            .with_cell(
+                InventoryItemNode::new(1, "Axe")
+                    .equipped(true)
+                    .action(Action::EquipAxe),
+            )
             .into_page_model();
 
         let actions: Vec<_> = page
@@ -883,7 +886,9 @@ mod tests {
         assert_eq!(page.actionable_nodes().count(), 0);
         match &page.nodes[2] {
             MenuNode::Control { detail, .. } => {
-                assert!(detail.as_ref().is_some_and(|text| text.contains("not owned")));
+                assert!(detail
+                    .as_ref()
+                    .is_some_and(|text| text.contains("not owned")));
             }
             node => panic!("expected item control, got {node:?}"),
         }

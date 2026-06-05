@@ -221,28 +221,20 @@ where
         // raycasts the cube camera against the controls' Lunex planes and emits
         // `PointerHits` — that's what makes `Pointer<Over>`/`Pointer<Click>` fire on
         // the cube. Hosts with their own manual hit-test (the demo) leave it off.
-        if app
-            .world()
-            .resource::<CubeMenuConfig>()
-            .pickable_controls
-        {
-            app.add_systems(
-                PreUpdate,
-                cube_3d_picking.in_set(PickingSystems::Backend),
-            );
+        if app.world().resource::<CubeMenuConfig>().pickable_controls {
+            app.add_systems(PreUpdate, cube_3d_picking.in_set(PickingSystems::Backend));
             // Make ECS-driven focus / hover visible (the host moves focus in ECS
             // without rebuilding the face). The demo drives its own look + rebuilds
             // on nav, so this is gated to the Bevy-picking (game) configuration.
             app.add_systems(Update, sync_control_focus_visuals);
         }
-        app.add_systems(Startup, setup_cube)
-            .add_systems(
-                Update,
-                (
-                    rebuild_cube_faces::<PageId, Action>,
-                    animate_cube_ring::<PageId, Action>,
-                ),
-            );
+        app.add_systems(Startup, setup_cube).add_systems(
+            Update,
+            (
+                rebuild_cube_faces::<PageId, Action>,
+                animate_cube_ring::<PageId, Action>,
+            ),
+        );
     }
 }
 
@@ -305,7 +297,12 @@ fn cube_3d_picking(
     pointers: Query<(&PointerId, &PointerLocation)>,
     primary_window: Query<Entity, With<PrimaryWindow>>,
     camera_query: Query<
-        (Entity, &Camera, &bevy::camera::RenderTarget, &GlobalTransform),
+        (
+            Entity,
+            &Camera,
+            &bevy::camera::RenderTarget,
+            &GlobalTransform,
+        ),
         With<CubePauseCamera>,
     >,
     nodes: Query<(
@@ -336,9 +333,10 @@ fn cube_3d_picking(
         .map(|(entity, dimension, transform, pickable, _)| (entity, dimension, transform, pickable))
         .collect();
 
-    for (pointer, location) in pointers.iter().filter_map(|(pointer, loc)| {
-        loc.location().map(|l| (pointer, l))
-    }) {
+    for (pointer, location) in pointers
+        .iter()
+        .filter_map(|(pointer, loc)| loc.location().map(|l| (pointer, l)))
+    {
         // Only handle pointers on this camera's render target.
         let on_target = render_target
             .normalize(primary_window)
@@ -405,7 +403,11 @@ fn cube_3d_picking(
 fn sync_control_focus_visuals(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut controls: Query<
-        (&CubeControlStyle, &MenuVisualState, &mut MeshMaterial3d<StandardMaterial>),
+        (
+            &CubeControlStyle,
+            &MenuVisualState,
+            &mut MeshMaterial3d<StandardMaterial>,
+        ),
         Changed<MenuVisualState>,
     >,
 ) {
@@ -471,7 +473,11 @@ fn rebuild_cube_faces<PageId, Action>(
         for (i, model) in pages.pages.iter().enumerate() {
             let active = pages.active.as_ref() == Some(&model.id);
             let angle = (i as f32) * std::f32::consts::TAU / n;
-            let pos = Vec3::new(angle.sin() * geo.page_radius, 0.0, angle.cos() * geo.page_radius);
+            let pos = Vec3::new(
+                angle.sin() * geo.page_radius,
+                0.0,
+                angle.cos() * geo.page_radius,
+            );
             let rot = Quat::from_rotation_y(angle);
             let scale = Vec3::new(flip, 1.0, 1.0);
             let mut face = ring.spawn((
@@ -566,8 +572,7 @@ fn animate_cube_ring<PageId, Action>(
         .as_ref()
         .and_then(|a| pages.pages.iter().position(|p| &p.id == a))
         .unwrap_or(0) as f32;
-    let target =
-        Quat::from_rotation_y(-(active_idx + spin_offset) * std::f32::consts::TAU / n);
+    let target = Quat::from_rotation_y(-(active_idx + spin_offset) * std::f32::consts::TAU / n);
     let rotate_step = (time.delta_secs() * config.page_rotate_speed).clamp(0.0, 1.0);
     let spin = ring_t.rotation.slerp(target, rotate_step);
 
@@ -663,9 +668,18 @@ fn render_page_model<PageId, Action>(
     }
     for node in &model.nodes {
         match node {
-            MenuNode::Panel { rect, color, action } => {
-                spawn_panel(ui, materials, *rect, menu_color(*color), action.clone(), active)
-            }
+            MenuNode::Panel {
+                rect,
+                color,
+                action,
+            } => spawn_panel(
+                ui,
+                materials,
+                *rect,
+                menu_color(*color),
+                action.clone(),
+                active,
+            ),
             MenuNode::Text {
                 x,
                 y,
@@ -797,7 +811,11 @@ fn spawn_text(
     });
     ui.spawn((
         Name::new("text"),
-        UiLayout::window().x(Rl(x)).y(Rl(y)).anchor(Anchor::CENTER).pack(),
+        UiLayout::window()
+            .x(Rl(x))
+            .y(Rl(y))
+            .anchor(Anchor::CENTER)
+            .pack(),
         UiDepth::Set(page_depth(text_depth(y), active)),
         UiTextSize::from(Rh(size)),
         Text3d::new(text.to_string()),
@@ -897,7 +915,11 @@ fn spawn_control<Action>(
         if selected && draw_corners {
             spawn_selection_corners(children, materials, active);
         }
-        let main_size = if matches!(kind, MenuControlKind::Item) { 20.0 } else { 22.0 };
+        let main_size = if matches!(kind, MenuControlKind::Item) {
+            20.0
+        } else {
+            22.0
+        };
         spawn_text(
             children,
             materials,
@@ -991,11 +1013,47 @@ fn spawn_nav_arrows(
     let bg = control_color(MenuControlKind::Action, false, false);
     let left = MenuRect::new(1.8, 43.5, 7.5, 13.0);
     let right = MenuRect::new(90.7, 43.5, 7.5, 13.0);
-    spawn_panel_at_depth(ui, materials, left, bg, None::<Action0>, DEPTH_ACTION, active);
-    spawn_panel_at_depth(ui, materials, right, bg, None::<Action0>, DEPTH_ACTION, active);
+    spawn_panel_at_depth(
+        ui,
+        materials,
+        left,
+        bg,
+        None::<Action0>,
+        DEPTH_ACTION,
+        active,
+    );
+    spawn_panel_at_depth(
+        ui,
+        materials,
+        right,
+        bg,
+        None::<Action0>,
+        DEPTH_ACTION,
+        active,
+    );
     let glyph = Srgba::rgb_u8(242, 234, 200);
-    spawn_text(ui, materials, left.x + left.w * 0.5, left.y + left.h * 0.5, 5.0, "<", TextAlign::Center, glyph, active);
-    spawn_text(ui, materials, right.x + right.w * 0.5, right.y + right.h * 0.5, 5.0, ">", TextAlign::Center, glyph, active);
+    spawn_text(
+        ui,
+        materials,
+        left.x + left.w * 0.5,
+        left.y + left.h * 0.5,
+        5.0,
+        "<",
+        TextAlign::Center,
+        glyph,
+        active,
+    );
+    spawn_text(
+        ui,
+        materials,
+        right.x + right.w * 0.5,
+        right.y + right.h * 0.5,
+        5.0,
+        ">",
+        TextAlign::Center,
+        glyph,
+        active,
+    );
 }
 
 fn spawn_cube_edge_frame(
@@ -1006,10 +1064,42 @@ fn spawn_cube_edge_frame(
     let color = Color::srgba(0.80, 0.92, 1.0, 0.62);
     // Cube borders sit in their own deterministic depth band so they do not
     // shimmer against the page/panel edges while the cube rotates.
-    spawn_panel_at_depth(ui, materials, MenuRect::new(0.0, 0.0, 100.0, 0.7), color, None::<Action0>, DEPTH_EDGE, active);
-    spawn_panel_at_depth(ui, materials, MenuRect::new(0.0, 99.3, 100.0, 0.7), color, None::<Action0>, DEPTH_EDGE, active);
-    spawn_panel_at_depth(ui, materials, MenuRect::new(0.0, 0.0, 0.7, 100.0), color, None::<Action0>, DEPTH_EDGE, active);
-    spawn_panel_at_depth(ui, materials, MenuRect::new(99.3, 0.0, 0.7, 100.0), color, None::<Action0>, DEPTH_EDGE, active);
+    spawn_panel_at_depth(
+        ui,
+        materials,
+        MenuRect::new(0.0, 0.0, 100.0, 0.7),
+        color,
+        None::<Action0>,
+        DEPTH_EDGE,
+        active,
+    );
+    spawn_panel_at_depth(
+        ui,
+        materials,
+        MenuRect::new(0.0, 99.3, 100.0, 0.7),
+        color,
+        None::<Action0>,
+        DEPTH_EDGE,
+        active,
+    );
+    spawn_panel_at_depth(
+        ui,
+        materials,
+        MenuRect::new(0.0, 0.0, 0.7, 100.0),
+        color,
+        None::<Action0>,
+        DEPTH_EDGE,
+        active,
+    );
+    spawn_panel_at_depth(
+        ui,
+        materials,
+        MenuRect::new(99.3, 0.0, 0.7, 100.0),
+        color,
+        None::<Action0>,
+        DEPTH_EDGE,
+        active,
+    );
 }
 
 /// Zero-sized stand-in `Action` for non-interactive decoration spawns (edges).

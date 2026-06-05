@@ -16,8 +16,8 @@ use ambition_inventory_ui::cube::{
 use ambition_inventory_ui::{
     ActiveMenuPages, AmbitionMenuControl, AmbitionMenuPage, InventoryItemNode, InventorySlotId,
     ItemsOnlyPageSpec, MenuColor, MenuControlKind, MenuCubeGeometry, MenuFocusKey, MenuNode,
-    MenuOpenCloseStyle, MenuPageModel, MenuRect, MenuShellEffect, MenuShellEffects,
-    MenuShellPhase, MenuTextAlign, MenuVisualState,
+    MenuOpenCloseStyle, MenuPageModel, MenuRect, MenuShellEffect, MenuShellEffects, MenuShellPhase,
+    MenuTextAlign, MenuVisualState,
 };
 
 // Inside-the-cube shell geometry, shared with the lib via `CubeMenuConfig`.
@@ -45,26 +45,31 @@ const STATUS_WRAP_COLS: usize = 56;
 const DETAIL_VISIBLE_LINES: usize = 5;
 
 pub(crate) fn run() {
-    if std::env::args().skip(1).any(|arg| arg == "--smoke" || arg == "smoke") {
+    if std::env::args()
+        .skip(1)
+        .any(|arg| arg == "--smoke" || arg == "smoke")
+    {
         run_smoke();
         return;
     }
 
     App::new()
-        .add_plugins(DefaultPlugins
-            .set(AssetPlugin {
-                file_path: "../../assets".to_string(),
-                ..default()
-            })
-            .set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: "Ambition Inventory UI - Ambition Mock Kaleidoscope".to_string(),
-                    resolution: (1180, 760).into(),
-                    present_mode: PresentMode::AutoNoVsync,
+        .add_plugins(
+            DefaultPlugins
+                .set(AssetPlugin {
+                    file_path: "../../assets".to_string(),
+                    ..default()
+                })
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "Ambition Inventory UI - Ambition Mock Kaleidoscope".to_string(),
+                        resolution: (1180, 760).into(),
+                        present_mode: PresentMode::AutoNoVsync,
+                        ..default()
+                    }),
                     ..default()
                 }),
-                ..default()
-            }))
+        )
         .insert_resource(WinitSettings::continuous())
         .insert_resource(ClearColor(Color::srgb(0.008, 0.009, 0.020)))
         .insert_resource(LoadFonts {
@@ -117,8 +122,20 @@ pub(crate) fn run() {
         .add_systems(Startup, setup_app_shell)
         .add_systems(Update, publish_mock_page_models)
         .add_systems(Update, menu_toggle_input)
-        .add_systems(Update, (keyboard_navigation, mouse_navigation, pointer_hit_test))
-        .add_systems(Update, (drive_cube_open, rebuild_hud_overlay, update_fps_debug_overlay, sync_dummy_unpaused_overlay).chain())
+        .add_systems(
+            Update,
+            (keyboard_navigation, mouse_navigation, pointer_hit_test),
+        )
+        .add_systems(
+            Update,
+            (
+                drive_cube_open,
+                rebuild_hud_overlay,
+                update_fps_debug_overlay,
+                sync_dummy_unpaused_overlay,
+            )
+                .chain(),
+        )
         .run();
 }
 

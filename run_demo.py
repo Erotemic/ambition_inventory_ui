@@ -30,17 +30,14 @@ MODE_ALIASES = {
     "ambition-mock": "mock",
     "mock-demo": "mock",
     "ambition": "mock",
-
     # Non-window smoke path for CI / quick API validation.
     "mock-smoke": "mock-smoke",
     "smoke": "mock-smoke",
     "scripted": "mock-smoke",
-
     # Renderer-neutral items-only model seam example.
     "seam": "seam",
     "items-seam": "seam",
     "items-only": "seam",
-
     # Existing demos kept intact and reachable by name.
     "demo1": "demo1",
     "demo": "demo1",
@@ -49,7 +46,6 @@ MODE_ALIASES = {
     "oot": "oot",
     "oot-pause": "oot",
     "pause": "oot",
-
     # Maintenance commands.
     "check": "check",
     "test": "test",
@@ -86,7 +82,9 @@ def run(cmd: list[str], cwd: Path, dry_run: bool) -> int:
     return subprocess.call(cmd, cwd=str(cwd), env=env)
 
 
-def cargo_run_args(args: argparse.Namespace, package_or_example: list[str]) -> list[str]:
+def cargo_run_args(
+    args: argparse.Namespace, package_or_example: list[str]
+) -> list[str]:
     cmd = ["cargo", "run", *package_or_example]
     if args.no_default_features:
         cmd.append("--no-default-features")
@@ -117,7 +115,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return interpret_tokens(parser, argv)
 
 
-def interpret_tokens(parser: argparse.ArgumentParser, argv: list[str]) -> argparse.Namespace:
+def interpret_tokens(
+    parser: argparse.ArgumentParser, argv: list[str]
+) -> argparse.Namespace:
     mode = "mock"
     release = False
     no_default_features = False
@@ -179,10 +179,16 @@ def main(argv: list[str]) -> int:
         return run(["cargo", "fmt", "--all"], repo_root, args.dry_run)
 
     if args.mode == "test":
-        return run(["cargo", "test", "-p", "ambition_inventory_ui", "--lib"], repo_root, args.dry_run)
+        return run(
+            ["cargo", "test", "-p", "ambition_inventory_ui", "--lib"],
+            repo_root,
+            args.dry_run,
+        )
 
     if args.mode == "check":
-        return run(["cargo", "check", "--workspace", "--all-targets"], repo_root, args.dry_run)
+        return run(
+            ["cargo", "check", "--workspace", "--all-targets"], repo_root, args.dry_run
+        )
 
     if args.mode == "all":
         steps = [
