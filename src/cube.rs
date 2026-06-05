@@ -445,7 +445,7 @@ fn rebuild_cube_faces<PageId, Action>(
         *dirty = true;
         return;
     };
-    info!(
+    debug!(
         "cube: rebuilding {} face(s) (active page present: {})",
         pages.pages.len(),
         pages.active.is_some()
