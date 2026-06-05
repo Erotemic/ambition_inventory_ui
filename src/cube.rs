@@ -167,7 +167,9 @@ impl Default for CubeMenuConfig {
             fold_radians: 1.60,
             open_close_speed: 8.0,
             close_speed_scale: 2.0,
-            open_spin_faces: 1.0,
+            // >1.0 starts the open spin further into the neighbour page so more of
+            // the rotation is visible (1.5 = ~135° sweep on a 4-page cube).
+            open_spin_faces: 1.5,
             page_rotate_speed: 5.2,
             open_close_style: MenuOpenCloseStyle::OotPageFold,
             inside_x_flip: -1.0,

@@ -84,7 +84,7 @@ pub(crate) fn run() {
             open_close_speed: 8.0,
             // OoT feel: faster close + an opening spin (the demo is the reference).
             close_speed_scale: 2.0,
-            open_spin_faces: 1.0,
+            open_spin_faces: 1.5,
             page_rotate_speed: 5.2,
             open_close_style: MenuOpenCloseStyle::OotPageFold,
             inside_x_flip: INSIDE_PAGE_X_FLIP,
