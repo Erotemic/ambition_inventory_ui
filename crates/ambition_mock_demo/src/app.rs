@@ -82,6 +82,9 @@ pub(crate) fn run() {
             geometry: MenuCubeGeometry::oot_like(PAGE_RADIUS),
             fold_radians: OOT_PAGE_FOLD_RADIANS,
             open_close_speed: 8.0,
+            // OoT feel: faster close + an opening spin (the demo is the reference).
+            close_speed_scale: 2.0,
+            open_spin_faces: 1.0,
             page_rotate_speed: 5.2,
             open_close_style: MenuOpenCloseStyle::OotPageFold,
             inside_x_flip: INSIDE_PAGE_X_FLIP,

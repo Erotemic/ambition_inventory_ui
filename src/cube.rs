@@ -116,6 +116,16 @@ pub struct CubeMenuConfig {
     pub fold_radians: f32,
     /// Ease speed for the open/close fold.
     pub open_close_speed: f32,
+    /// Multiplier applied to [`open_close_speed`] while CLOSING (`target == 0`) so
+    /// the cube folds away faster than it opens (OoT subscreen feel; the open keeps
+    /// the gentle ease). `1.0` = symmetric. Default `2.0`.
+    pub close_speed_scale: f32,
+    /// OoT opening SPIN: how many ring page-steps the cube starts rotated toward the
+    /// viewer-RIGHT neighbour at the start of an OPEN, spinning around to the active
+    /// page as the fold completes (synced to the eased open `amount`). `0.0` disables
+    /// the spin (no opening rotation); `1.0` = one page-step. Close never spins.
+    /// Default `1.0`.
+    pub open_spin_faces: f32,
     /// Ease speed for the active-page ring rotation snap.
     pub page_rotate_speed: f32,
     /// Open/close presentation: page-fold (OoT) or a simple scale.
@@ -156,6 +166,8 @@ impl Default for CubeMenuConfig {
             geometry: MenuCubeGeometry::default(),
             fold_radians: 1.60,
             open_close_speed: 8.0,
+            close_speed_scale: 2.0,
+            open_spin_faces: 1.0,
             page_rotate_speed: 5.2,
             open_close_style: MenuOpenCloseStyle::OotPageFold,
             inside_x_flip: -1.0,
@@ -515,13 +527,36 @@ fn animate_cube_ring<PageId, Action>(
     };
     let n = pages.pages.len().max(1) as f32;
 
-    // Ease the open amount toward the host's target (demo's exp ease).
-    let open_step = 1.0 - (-config.open_close_speed * time.delta_secs()).exp();
+    // Detect open vs close from the host's target: >0.5 = opening, else closing.
+    let opening = state.target > 0.5;
+
+    // Ease the open amount toward the host's target (demo's exp ease). The CLOSE
+    // uses a faster rate (`close_speed_scale`×) so the cube folds away snappily
+    // without the lingering tail, while the OPEN keeps its gentle ease.
+    let rate = if opening {
+        config.open_close_speed
+    } else {
+        config.open_close_speed * config.close_speed_scale
+    };
+    let open_step = 1.0 - (-rate * time.delta_secs()).exp();
     state.amount += (state.target - state.amount) * open_step;
     if (state.amount - state.target).abs() < 0.002 {
         state.amount = state.target;
     }
     let open = smoothstep(state.amount.clamp(0.0, 1.0));
+
+    // OoT opening SPIN: while opening, start the ring rotated one page-step toward
+    // the viewer-RIGHT neighbour and spin around so the active page swings to the
+    // front, synced to the eased open `amount` (finishes aligned as the fold-in
+    // completes). The ring formula `from_rotation_y(-idx * TAU/n)` brings the
+    // viewer-LEFT neighbour (`idx+1`) to front for a positive step; the viewer-RIGHT
+    // neighbour is `idx-1`, so the spin offset starts NEGATIVE and eases to 0.
+    // (Sign note: if this spins the wrong way, flip the leading `-` below.)
+    let spin_offset = if opening {
+        -config.open_spin_faces * (1.0 - open)
+    } else {
+        0.0 // close never spins — it just folds away facing the active page.
+    };
 
     // Snap the ring so the active face turns to the camera (OoT page turn).
     let active_idx = pages
@@ -529,7 +564,8 @@ fn animate_cube_ring<PageId, Action>(
         .as_ref()
         .and_then(|a| pages.pages.iter().position(|p| &p.id == a))
         .unwrap_or(0) as f32;
-    let target = Quat::from_rotation_y(-active_idx * std::f32::consts::TAU / n);
+    let target =
+        Quat::from_rotation_y(-(active_idx + spin_offset) * std::f32::consts::TAU / n);
     let rotate_step = (time.delta_secs() * config.page_rotate_speed).clamp(0.0, 1.0);
     let spin = ring_t.rotation.slerp(target, rotate_step);
 
