@@ -725,6 +725,12 @@ struct HudActionIcon(OotAction);
 #[derive(Component)]
 struct EquipAnimationVisual;
 
+#[derive(Component)]
+struct EquipAnimationIcon;
+
+#[derive(Component)]
+struct EquipAnimationGlowText;
+
 #[derive(Resource, Clone, Debug)]
 struct ReadmeCapture {
     output_dir: std::path::PathBuf,

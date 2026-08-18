@@ -330,22 +330,34 @@ fn sync_equip_animation_visual(
     demo: Res<OotDemo>,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut query: Query<(
+    mut visual_query: Query<(
         &mut UiLayout,
         &MeshMaterial3d<StandardMaterial>,
     ), With<EquipAnimationVisual>>,
+    icon_query: Query<&MeshMaterial3d<StandardMaterial>, With<EquipAnimationIcon>>,
+    mut glow_query: Query<&mut Text3d, With<EquipAnimationGlowText>>,
+    mut last_glow_label: Local<Option<&'static str>>,
 ) {
-    let Ok((mut layout, material_handle)) = query.single_mut() else { return; };
+    let Ok((mut layout, panel_material)) = visual_query.single_mut() else { return; };
+    let Ok(icon_material) = icon_query.single() else { return; };
+    let Ok(mut glow_text) = glow_query.single_mut() else { return; };
+
     let Some(anim) = demo.equip_anim else {
-        set_material_color_if_changed(&mut materials, &material_handle.0, Color::NONE);
+        set_material_color_if_changed(&mut materials, &panel_material.0, Color::NONE);
+        set_material_color_if_changed(&mut materials, &icon_material.0, Color::NONE);
+        if *last_glow_label != Some("") {
+            *glow_text = Text3d::new("");
+            *last_glow_label = Some("");
+        }
         return;
     };
 
     let t = anim.progress.clamp(0.0, 1.0);
-    let (pos, icon, size) = match anim.phase {
+    let (pos, icon, label, size) = match anim.phase {
         EquipAnimPhase::ItemToButton => (
             lerp_vec2(anim.from, anim.to, t),
             oot_items()[anim.item_idx].icon,
+            "",
             7.0,
         ),
         EquipAnimPhase::ArrowGlowToBow => {
@@ -353,6 +365,7 @@ fn sync_equip_animation_visual(
             (
                 lerp_vec2(anim.from, anim.via, t),
                 kind.glow_icon(),
+                "glow",
                 7.2 + 1.6 * (1.0 - t),
             )
         }
@@ -361,26 +374,40 @@ fn sync_equip_animation_visual(
             (
                 anim.via,
                 kind.glow_icon(),
+                "glow",
                 8.2 + (t * PI * 4.0).sin().abs(),
             )
         }
         EquipAnimPhase::BowToButton => (
             lerp_vec2(anim.via, anim.to, t),
             oot_items()[anim.item_idx].icon,
+            "",
             7.0,
         ),
     };
+
     let desired_layout = UiLayout::window()
-        .x(Rl(pos.x))
-        .y(Rl(pos.y))
+        .x(Rl(pos.x - size * 0.5))
+        .y(Rl(pos.y - size * 0.5))
         .width(Rl(size))
         .height(Rh(size))
-        .anchor(Anchor::CENTER)
+        .anchor(Anchor::TOP_LEFT)
         .pack();
     layout.set_if_neq(desired_layout);
-    set_material_color_if_changed(&mut materials, &material_handle.0, Color::WHITE);
+
+    set_material_color_if_changed(
+        &mut materials,
+        &panel_material.0,
+        Color::srgba(1.0, 1.0, 1.0, 0.02),
+    );
+    set_material_color_if_changed(&mut materials, &icon_material.0, Color::WHITE);
     let texture = asset_server.load(icon.to_string());
-    set_material_texture_if_changed(&mut materials, &material_handle.0, texture);
+    set_material_texture_if_changed(&mut materials, &icon_material.0, texture);
+
+    if *last_glow_label != Some(label) {
+        *glow_text = Text3d::new(label);
+        *last_glow_label = Some(label);
+    }
 }
 
 fn set_material_color_if_changed(

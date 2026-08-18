@@ -585,7 +585,14 @@ fn spawn_equip_animation_visual(
     materials: &mut Assets<StandardMaterial>,
     asset_server: &AssetServer,
 ) {
-    let material = materials.add(StandardMaterial {
+    let panel_material = materials.add(StandardMaterial {
+        base_color: Color::NONE,
+        alpha_mode: AlphaMode::Blend,
+        cull_mode: None,
+        unlit: true,
+        ..default()
+    });
+    let icon_material = materials.add(StandardMaterial {
         base_color_texture: Some(asset_server.load("icons/oot/bow.png")),
         base_color: Color::NONE,
         alpha_mode: AlphaMode::Blend,
@@ -593,6 +600,14 @@ fn spawn_equip_animation_visual(
         unlit: true,
         ..default()
     });
+    let text_material = materials.add(StandardMaterial {
+        base_color_texture: Some(TextAtlas::DEFAULT_IMAGE),
+        alpha_mode: AlphaMode::Blend,
+        cull_mode: None,
+        unlit: true,
+        ..default()
+    });
+
     ui.spawn((
         Name::new("C-button equip animation"),
         EquipAnimationVisual,
@@ -601,14 +616,56 @@ fn spawn_equip_animation_visual(
             .y(Rl(0.0))
             .width(Rl(7.0))
             .height(Rh(7.0))
-            .anchor(Anchor::CENTER)
+            .anchor(Anchor::TOP_LEFT)
             .pack(),
-        UiDepth::Set(DEPTH_HUD_TEXT - 0.1),
+        UiDepth::Set(DEPTH_HUD_PANEL),
         UiMeshPlane3d,
-        MeshMaterial3d(material),
+        MeshMaterial3d(panel_material),
         Pickable::IGNORE,
         RenderLayers::layer(HUD_RENDER_LAYER),
-    ));
+    ))
+    .with_children(|children| {
+        children.spawn((
+            Name::new("C-button equip animation icon"),
+            EquipAnimationIcon,
+            UiLayout::window()
+                .x(Rl(50.0))
+                .y(Rl(50.0))
+                .width(Rl(92.0))
+                .height(Rh(92.0))
+                .anchor(Anchor::CENTER)
+                .pack(),
+            UiDepth::Set(DEPTH_HUD_ICON),
+            UiMeshPlane3d,
+            MeshMaterial3d(icon_material),
+            Pickable::IGNORE,
+            RenderLayers::layer(HUD_RENDER_LAYER),
+        ));
+        children.spawn((
+            Name::new("C-button equip animation glow label"),
+            EquipAnimationGlowText,
+            UiLayout::window()
+                .x(Rl(62.0))
+                .y(Rl(45.0))
+                .anchor(Anchor::CENTER)
+                .pack(),
+            UiDepth::Set(DEPTH_HUD_TEXT),
+            UiTextSize::from(Rh(22.0)),
+            Text3d::new(""),
+            Text3dStyling {
+                size: 64.0,
+                color: Srgba::rgb_u8(240, 232, 198),
+                align: TextAlign::Center,
+                font: Arc::from(FONT_FAMILY),
+                weight: Weight::BOLD,
+                ..Default::default()
+            },
+            MeshMaterial3d(text_material),
+            Mesh3d::default(),
+            Pickable::IGNORE,
+            RenderLayers::layer(HUD_RENDER_LAYER),
+        ));
+    });
 }
 
 fn is_disabled_control(kind: MenuControlKind, action: Option<OotAction>) -> bool {
