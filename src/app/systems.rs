@@ -3,6 +3,7 @@ fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
     demo: Res<OotDemo>,
+    readme_capture: Option<Res<ReadmeCapture>>,
 ) {
     commands.spawn((
         DirectionalLight { illuminance: 2800.0, shadows_enabled: false, ..default() },
@@ -42,18 +43,20 @@ fn setup(
     if std::env::var_os("OOT_ENABLE_FXAA").is_some() {
         hud_camera.insert(Fxaa::default());
     }
-    commands.spawn((
-        FpsDebugText,
-        Text::new("fps: collecting..."),
-        TextFont { font_size: 14.0, ..default() },
-        TextColor(Color::srgba(0.86, 0.95, 0.88, 0.92)),
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(10.0),
-            top: Val::Px(8.0),
-            ..default()
-        },
-    ));
+    if readme_capture.is_none() {
+        commands.spawn((
+            FpsDebugText,
+            Text::new("fps: collecting..."),
+            TextFont { font_size: 14.0, ..default() },
+            TextColor(Color::srgba(0.86, 0.95, 0.88, 0.92)),
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(10.0),
+                top: Val::Px(8.0),
+                ..default()
+            },
+        ));
+    }
     let ring = commands
         .spawn((
             Name::new("OoT-style Lunex pause room"),
@@ -64,10 +67,69 @@ fn setup(
             RenderLayers::layer(0),
         ))
         .id();
+    let capture_all_faces = readme_capture.is_some();
     commands.entity(ring).with_children(|ring| {
-        spawn_all_faces(ring, &demo, &mut materials, &asset_server);
+        spawn_all_faces(ring, &demo, &mut materials, &asset_server, capture_all_faces);
     });
     spawn_hud_overlay(&mut commands, &demo, &mut materials, &asset_server);
+}
+
+fn prepare_readme_capture_frame(
+    readme_capture: Option<Res<ReadmeCapture>>,
+    mut menu: ResMut<MenuAnimation>,
+    mut shell: ResMut<MenuShell>,
+) {
+    let Some(readme_capture) = readme_capture else { return; };
+    if readme_capture.is_complete() {
+        return;
+    }
+    let angle = readme_capture.current_angle();
+    menu.current_angle = angle;
+    menu.target_angle = angle;
+    shell.openness = 1.0;
+    shell.target_open = true;
+}
+
+fn request_readme_capture_frame(
+    mut commands: Commands,
+    mut readme_capture: Option<ResMut<ReadmeCapture>>,
+) {
+    let Some(mut readme_capture) = readme_capture else { return; };
+    if readme_capture.is_complete() || readme_capture.waiting_for_capture {
+        return;
+    }
+    if readme_capture.warmup_frames_remaining > 0 {
+        readme_capture.warmup_frames_remaining -= 1;
+        return;
+    }
+    commands
+        .spawn(Screenshot::primary_window())
+        .observe(save_to_disk(readme_capture.current_frame_path()));
+    readme_capture.waiting_for_capture = true;
+    readme_capture.capture_started = false;
+}
+
+fn advance_readme_capture_frame(
+    mut readme_capture: Option<ResMut<ReadmeCapture>>,
+    screenshot_saving: Query<Entity, With<Capturing>>,
+    mut app_exit: MessageWriter<AppExit>,
+) {
+    let Some(mut readme_capture) = readme_capture else { return; };
+    if !readme_capture.waiting_for_capture {
+        return;
+    }
+    if !readme_capture.capture_started {
+        readme_capture.capture_started = true;
+        return;
+    }
+    if !screenshot_saving.is_empty() || !readme_capture.current_frame_path().exists() {
+        return;
+    }
+    readme_capture.waiting_for_capture = false;
+    readme_capture.next_frame += 1;
+    if readme_capture.is_complete() {
+        app_exit.write(AppExit::Success);
+    }
 }
 
 fn update_fps_debug_overlay(
@@ -110,6 +172,7 @@ fn rebuild_lunex_faces(
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
     demo: Res<OotDemo>,
+    readme_capture: Option<Res<ReadmeCapture>>,
     ring_query: Query<Entity, With<MenuRing>>,
     face_query: Query<(Entity, &PageFace), With<LunexFaceRoot>>,
     hud_query: Query<Entity, With<HudOverlayRoot>>,
@@ -125,7 +188,10 @@ fn rebuild_lunex_faces(
         for (entity, _) in &face_query {
             commands.entity(entity).despawn();
         }
-        commands.entity(ring).with_children(|ring| spawn_all_faces(ring, &demo, &mut materials, &asset_server));
+        let capture_all_faces = readme_capture.is_some();
+        commands.entity(ring).with_children(|ring| {
+            spawn_all_faces(ring, &demo, &mut materials, &asset_server, capture_all_faces)
+        });
     } else {
         for (entity, face) in &face_query {
             if face.0 == demo.page {
@@ -200,13 +266,19 @@ fn spawn_all_faces(
     demo: &OotDemo,
     materials: &mut Assets<StandardMaterial>,
     asset_server: &AssetServer,
+    capture_all_faces: bool,
 ) {
-    // Only three faces can be visible in the inside-the-cube camera: active,
-    // viewer-left, and viewer-right. The back/opposite face still contributed a
-    // full set of PBR mesh/material entities and showed up as steady-state render
-    // overhead in the idle flamegraph, so do not keep it alive.
-    for page in visible_face_pages(demo.page) {
-        spawn_face(ring, page, demo, materials, asset_server);
+    // Interactive mode keeps only the three faces that can be visible from the
+    // current page. README capture rotates the ring through a full 360 degrees,
+    // so it temporarily keeps the opposite face alive as well.
+    if capture_all_faces {
+        for page in OotDemo::pages() {
+            spawn_face(ring, page, demo, materials, asset_server);
+        }
+    } else {
+        for page in visible_face_pages(demo.page) {
+            spawn_face(ring, page, demo, materials, asset_server);
+        }
     }
 }
 

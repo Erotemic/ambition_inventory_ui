@@ -716,6 +716,72 @@ struct HudOverlayRoot;
 #[derive(Component)]
 struct MainPauseCamera;
 
+#[derive(Resource, Clone, Debug)]
+struct ReadmeCapture {
+    output_dir: std::path::PathBuf,
+    frame_count: u32,
+    next_frame: u32,
+    warmup_frames_remaining: u32,
+    waiting_for_capture: bool,
+    capture_started: bool,
+    window_width: u32,
+    window_height: u32,
+}
+
+impl ReadmeCapture {
+    fn from_env() -> Option<Self> {
+        let output_dir = std::env::var_os("OOT_CAPTURE_FRAMES_DIR")
+            .map(std::path::PathBuf::from)?;
+        let frame_count = std::env::var("OOT_CAPTURE_FRAME_COUNT")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .filter(|count: &u32| *count > 0)
+            .unwrap_or(60);
+        let warmup_frames_remaining = std::env::var("OOT_CAPTURE_WARMUP_FRAMES")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(30);
+        let window_width = std::env::var("OOT_CAPTURE_WINDOW_WIDTH")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .filter(|width: &u32| *width > 0)
+            .unwrap_or(1180);
+        let window_height = std::env::var("OOT_CAPTURE_WINDOW_HEIGHT")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .filter(|height: &u32| *height > 0)
+            .unwrap_or(760);
+        std::fs::create_dir_all(&output_dir)
+            .expect("failed to create README animation capture directory");
+        Some(Self {
+            output_dir,
+            frame_count,
+            next_frame: 0,
+            warmup_frames_remaining,
+            waiting_for_capture: false,
+            capture_started: false,
+            window_width,
+            window_height,
+        })
+    }
+
+    fn window_resolution(&self) -> (u32, u32) {
+        (self.window_width, self.window_height)
+    }
+
+    fn is_complete(&self) -> bool {
+        self.next_frame >= self.frame_count
+    }
+
+    fn current_angle(&self) -> f32 {
+        -(self.next_frame as f32 / self.frame_count as f32) * std::f32::consts::TAU
+    }
+
+    fn current_frame_path(&self) -> std::path::PathBuf {
+        self.output_dir.join(format!("frame_{:04}.png", self.next_frame))
+    }
+}
+
 #[derive(Resource, Debug)]
 struct FpsWindow {
     samples: VecDeque<f32>,

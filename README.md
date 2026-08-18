@@ -4,10 +4,7 @@ A standalone Bevy + Lunex demo of an Ocarina of Time-inspired kaleidoscope pause
 
 The demo icons are original procedural placeholder art generated locally and are not committed to the repository.
 
-
-![Screenshot](./screenshot.webp)
-
-
+![OoT-style kaleidoscope pause menu](./screenshot.webp)
 
 ## Run
 
@@ -17,6 +14,16 @@ python3 -m pip install pillow
 ```
 
 `run_demo.py` regenerates the icons into `assets/icons/oot/` and launches the release build. The entire `assets/` directory is git-ignored.
+
+## README animation
+
+With Pillow and `ffmpeg` installed, regenerate `screenshot.webp` from a deterministic full cube rotation:
+
+```bash
+./capture_readme_animation.py
+```
+
+The capture frames are temporary; the script leaves only the compressed animated WebP in the working tree.
 
 ## Controls
 

@@ -10,6 +10,7 @@ use bevy::input::gamepad::GamepadAxis;
 use bevy::input::mouse::MouseWheel;
 use bevy::input::touch::{TouchInput, TouchPhase};
 use bevy::prelude::*;
+use bevy::render::view::screenshot::{save_to_disk, Capturing, Screenshot};
 use bevy::window::{PresentMode, PrimaryWindow, SystemCursorIcon};
 use bevy::winit::WinitSettings;
 use bevy_lunex::prelude::*;
@@ -98,29 +99,40 @@ const HUD_RENDER_LAYER: usize = 1;
 // HUD camera/render layer so cube faces can never depth-clip the HUD.
 
 pub(crate) fn run() {
-    App::new()
-        .add_plugins(
-            DefaultPlugins
-                .set(AssetPlugin {
-                    // Bevy resolves asset paths relative to this demo crate by default
-                    // when running the demo. Load the demo assets directly from the repository root.
-                    file_path: "assets".to_string(),
-                    ..default()
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "Bevy Lunex OoT Kaleidoscope Menu Demo".to_string(),
-                        resolution: (1180, 760).into(),
-                        // Do not emulate OoT's low presentation cadence. Keep animations
-                        // time-based, but let the demo present as fast as the host can render.
-                        present_mode: PresentMode::AutoNoVsync,
-                        ..default()
-                    }),
+    let readme_capture = ReadmeCapture::from_env();
+    let window_resolution = readme_capture
+        .as_ref()
+        .map(ReadmeCapture::window_resolution)
+        .unwrap_or((1180, 760));
+    let present_mode = if readme_capture.is_some() {
+        PresentMode::AutoVsync
+    } else {
+        PresentMode::AutoNoVsync
+    };
+
+    let mut app = App::new();
+    app.add_plugins(
+        DefaultPlugins
+            .set(AssetPlugin {
+                // Bevy resolves asset paths relative to this demo crate by default
+                // when running the demo. Load the demo assets directly from the repository root.
+                file_path: "assets".to_string(),
+                ..default()
+            })
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "Bevy Lunex OoT Kaleidoscope Menu Demo".to_string(),
+                    resolution: window_resolution.into(),
+                    // Interactive mode presents as fast as the host can render. Capture
+                    // mode uses VSync so generated assets have deterministic warmup frames.
+                    present_mode,
                     ..default()
                 }),
-        )
-        .insert_resource(WinitSettings::continuous())
-        .add_plugins((UiLunexPlugins, MeshPickingPlugin))
+                ..default()
+            }),
+    )
+    .insert_resource(WinitSettings::continuous())
+    .add_plugins((UiLunexPlugins, MeshPickingPlugin))
         .insert_resource(ClearColor(Color::srgb(0.012, 0.011, 0.018)))
         .insert_resource(LoadFonts {
             font_directories: vec![
@@ -136,8 +148,13 @@ pub(crate) fn run() {
         .insert_resource(FpsWindow::default())
         .insert_resource(GamepadCStickState::default())
         .insert_resource(GamepadNavStickState::default())
-        .insert_resource(MenuShellConfig::default())
-        .add_systems(Startup, setup)
+        .insert_resource(MenuShellConfig::default());
+
+    if let Some(capture) = readme_capture {
+        app.insert_resource(capture);
+    }
+
+    app.add_systems(Startup, setup)
         .add_systems(Update, menu_toggle_input)
         .add_systems(
             Update,
@@ -151,14 +168,18 @@ pub(crate) fn run() {
         .add_systems(
             Update,
             (
+                prepare_readme_capture_frame,
                 animate_equip_and_save,
                 rebuild_lunex_faces,
                 animate_menu_ring,
+                request_readme_capture_frame,
+                advance_readme_capture_frame,
                 update_fps_debug_overlay,
             )
                 .chain(),
-        )
-        .run();
+        );
+
+    app.run();
 }
 
 // Split out from the original single-file prototype. These files are
