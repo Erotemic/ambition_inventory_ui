@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "pillow",
+# ]
+# ///
 """Generate stylized placeholder icons for the OoT pause-menu demo.
 
 The icons are original, procedural approximations meant for the demo UI. They

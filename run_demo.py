@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "pillow",
+# ]
+# ///
 """Generate the demo icons and run the OoT kaleidoscope pause-menu demo."""
 
 from __future__ import annotations
