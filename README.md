@@ -4,6 +4,11 @@ A standalone Bevy + Lunex demo of an Ocarina of Time-inspired kaleidoscope pause
 
 The demo icons are original procedural placeholder art generated locally and are not committed to the repository.
 
+
+![Screenshot](./screenshot.webp)
+
+
+
 ## Run
 
 ```bash
@@ -25,5 +30,3 @@ python3 -m pip install pillow
 - Gamepad D-pad: move selection
 - South face button: activate
 - East face button: back
-
-Lunex is consumed from crates.io as `bevy_lunex = 0.6.0`; it is not vendored in this repository.
