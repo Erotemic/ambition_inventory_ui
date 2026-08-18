@@ -11,7 +11,7 @@ use bevy::input::mouse::MouseWheel;
 use bevy::input::touch::{TouchInput, TouchPhase};
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Capturing, Screenshot};
-use bevy::window::{PresentMode, PrimaryWindow, SystemCursorIcon};
+use bevy::window::{PresentMode, PrimaryWindow};
 use bevy::winit::WinitSettings;
 use bevy_lunex::prelude::*;
 
@@ -132,8 +132,8 @@ pub(crate) fn run() {
             }),
     )
     .insert_resource(WinitSettings::continuous())
-    .add_plugins((UiLunexPlugins, MeshPickingPlugin))
-        .insert_resource(ClearColor(Color::srgb(0.012, 0.011, 0.018)))
+    .add_plugins(UiLunexPlugins)
+    .insert_resource(ClearColor(Color::srgb(0.012, 0.011, 0.018)))
         .insert_resource(LoadFonts {
             font_directories: vec![
                 "assets/fonts".to_string(),
@@ -164,7 +164,13 @@ pub(crate) fn run() {
             pointer_hit_test,
             gamepad_navigation,
             animate_equip_and_save,
-            rebuild_lunex_faces,
+            sync_page_content_visibility,
+            sync_selection_cursors,
+            sync_page_status_text,
+            sync_equipment_choice_visuals,
+            sync_equipment_preview,
+            sync_hud_c_icons,
+            sync_equip_animation_visual,
             animate_menu_ring,
             request_readme_capture_frame,
             advance_readme_capture_frame,
@@ -176,10 +182,8 @@ pub(crate) fn run() {
     app.run();
 }
 
-// Split out from the original single-file prototype. These files are
-// included into this private `app` module so the first refactor is
-// structural and behavior-preserving: no visibility churn or public API
-// expansion is required just to make the code navigable.
+// Keep the demo as one private application module while splitting the retained
+// menu model, rendering, input, capture, and state systems into focused files.
 include!("app/state.rs");
 include!("app/capture.rs");
 include!("app/data.rs");
