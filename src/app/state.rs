@@ -700,15 +700,7 @@ impl MenuShell {
         self.target_open && self.openness > 0.985
     }
 
-    fn phase(&self) -> MenuShellPhase {
-        if self.target_open {
-            if self.openness >= 0.985 { MenuShellPhase::Open } else { MenuShellPhase::Opening }
-        } else if self.openness <= 0.015 {
-            MenuShellPhase::Closed
-        } else {
-            MenuShellPhase::Closing
-        }
-    }
+
 }
 
 #[derive(Component)]

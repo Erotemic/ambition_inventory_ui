@@ -1,100 +1,17 @@
-[workspace]
-members = [".", "crates/ambition_demo", "crates/oot_pause_demo", "crates/ambition_mock_demo"]
-resolver = "2"
-
-# The vendored bevy_lunex crate inherits package metadata and dependency
-# versions from its workspace root. Because we vendor it inside this
-# workspace instead of keeping its original workspace root, we provide the
-# workspace metadata/dependency table it expects here.
-[workspace.package]
-authors = ["IDEDARY"]
-categories = ["game-development", "gui", "mathematics"]
-edition = "2024"
-keywords = ["bevy", "bevy-lunex", "layout", "lunex", "ui"]
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/bytestring-net/bevy-lunex"
-version = "0.6.0"
-
-[workspace.dependencies]
-bevy_lunex = { path = "vendor/bevy_lunex/crate" }
-
-bevy_app           = { version = "0.18", default-features = false }
-bevy_asset         = { version = "0.18", default-features = false }
-bevy_camera        = { version = "0.18", default-features = false }
-bevy_color         = { version = "0.18", default-features = false }
-bevy_derive        = { version = "0.18", default-features = false }
-bevy_ecs           = { version = "0.18", default-features = false }
-bevy_gizmos        = { version = "0.18", default-features = false }
-bevy_image         = { version = "0.18", default-features = false }
-bevy_input         = { version = "0.18", default-features = false }
-bevy_log           = { version = "0.18", default-features = false }
-bevy_math          = { version = "0.18", default-features = false }
-bevy_mesh          = { version = "0.18", default-features = false }
-bevy_pbr           = { version = "0.18", default-features = false }
-bevy_picking       = { version = "0.18", default-features = false }
-bevy_platform      = { version = "0.18", default-features = false }
-bevy_reflect       = { version = "0.18", default-features = false, features = ["functions"] }
-bevy_render        = { version = "0.18", default-features = false }
-bevy_sprite        = { version = "0.18", default-features = false, features = ["bevy_text"] }
-bevy_sprite_render = { version = "0.18", default-features = false }
-bevy_text          = { version = "0.18", default-features = false }
-bevy_time          = { version = "0.18", default-features = false }
-bevy_transform     = { version = "0.18", default-features = false }
-bevy_window        = { version = "0.18", default-features = false }
-bevy_winit         = { version = "0.18", default-features = false, features = ["custom_cursor"] }
-cosmic-text        = { version = "0.16", features = ["shape-run-cache"] }
-
-bevy_rich_text3d = { version = "^0.6" }
-
-colored   = { version = "^3.1.1" }
-getrandom = { version = "^0.3.3", features = ["wasm_js"] }
-radsort   = { version = "^0.1.1" }
-rand      = { version = "^0.9.1" }
-
 [package]
-name = "ambition_inventory_ui"
+name = "bevy_lunex_oot_kaleidoscope_menu_demo"
 version = "0.1.0"
 edition = "2021"
-description = "Reusable Bevy inventory/menu UI data model and interaction primitives."
+description = "Ocarina of Time-inspired kaleidoscope pause menu demo built with Bevy and Lunex."
 license = "MIT OR Apache-2.0"
 publish = false
-autobins = false
 
 [dependencies]
 bevy = "0.18.1"
-# Needed by the reusable cube renderer (`cube.rs`, #31). Same vendored crate the
-# demos use.
-bevy_lunex = { path = "vendor/bevy_lunex/crate" }
+bevy_lunex = "=0.6.0"
 
-# Development runtime profile for Bevy demos.
-#
-# Plain Rust debug builds keep dependencies at opt-level 0, which is often
-# dramatically slower for Bevy/wgpu/rendering-heavy workloads. Keep local crate
-# code lightly optimized for good debugging, but build dependency crates with
-# release-like speed so dev-mode FPS is representative enough for iteration.
 [profile.dev]
 opt-level = 1
-debug = true
-incremental = true
 
 [profile.dev.package."*"]
 opt-level = 3
-debug = true
-
-# Keep our editable crates at a lower optimization level than Bevy/wgpu/Lunex so
-# line-level debugging remains usable in the code we are actively changing.
-[profile.dev.package.ambition_inventory_ui]
-opt-level = 1
-debug = true
-
-[profile.dev.package.ambition_demo]
-opt-level = 1
-debug = true
-
-[profile.dev.package.oot_pause_demo]
-opt-level = 1
-debug = true
-
-[profile.dev.package.ambition_mock_demo]
-opt-level = 1
-debug = true

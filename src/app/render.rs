@@ -2,7 +2,7 @@ fn render_overlay_model(
     ui: &mut ChildSpawnerCommands,
     materials: &mut Assets<StandardMaterial>,
     asset_server: &AssetServer,
-    model: &MenuPageModel<OotPage, OotAction>,
+    model: &MenuPageModel<OotAction>,
 ) {
     for node in &model.nodes {
         match node {
@@ -43,11 +43,6 @@ fn spawn_hud_control(
         unlit: true,
         ..default()
     });
-    let focus = MenuFocusKey {
-        row: (rect.y * 10.0).round() as i32,
-        col: (rect.x * 10.0).round() as i32,
-        order: (rect.y * 100.0 + rect.x).round() as i32,
-    };
     let mut entity = ui.spawn((
         Name::new(format!("HUD {:?} control", kind)),
         UiLayout::window()
@@ -60,8 +55,6 @@ fn spawn_hud_control(
         UiDepth::Set(DEPTH_HUD_PANEL),
         UiMeshPlane3d,
         MeshMaterial3d(material),
-        AmbitionMenuControl { kind, action, focus },
-        MenuVisualState { focused: selected, selected, disabled: action.is_none(), ..Default::default() },
         RenderLayers::layer(HUD_RENDER_LAYER),
     ));
     if action.is_some() {
@@ -176,7 +169,7 @@ fn render_page_model(
     ui: &mut ChildSpawnerCommands,
     materials: &mut Assets<StandardMaterial>,
     asset_server: &AssetServer,
-    model: &MenuPageModel<OotPage, OotAction>,
+    model: &MenuPageModel<OotAction>,
 ) {
     spawn_panel(ui, materials, 0.0, 0.0, 100.0, 100.0, menu_color(model.background), None);
     spawn_cube_edge_frame(ui, materials);
@@ -213,11 +206,6 @@ fn spawn_control(
         unlit: true,
         ..default()
     });
-    let focus = MenuFocusKey {
-        row: (rect.y * 10.0).round() as i32,
-        col: (rect.x * 10.0).round() as i32,
-        order: (rect.y * 100.0 + rect.x).round() as i32,
-    };
     let mut entity = ui.spawn((
         Name::new(format!("{:?} control", kind)),
         UiLayout::window()
@@ -230,8 +218,6 @@ fn spawn_control(
         UiDepth::Set(panel_depth(rect.w, rect.h, action.is_some())),
         UiMeshPlane3d,
         MeshMaterial3d(material),
-        AmbitionMenuControl { kind, action, focus },
-        MenuVisualState { focused: selected, selected, disabled, ..Default::default() },
     ));
     if action.is_some() {
         entity.insert((

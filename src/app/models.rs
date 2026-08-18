@@ -1,7 +1,7 @@
-fn build_page_model(page: OotPage, demo: &OotDemo, active_face: bool) -> MenuPageModel<OotPage, OotAction> {
+fn build_page_model(page: OotPage, demo: &OotDemo, active_face: bool) -> MenuPageModel<OotAction> {
     let prompt_face = active_face && demo.save_prompt_face_visible();
     let background = if prompt_face { Color::srgba(0.010, 0.011, 0.026, 1.0) } else { page.face_color() };
-    let mut model = MenuPageModel::new(page, page.label(), mc(background));
+    let mut model = MenuPageModel::new(mc(background));
 
     // OoT does not draw the normal pause pane underneath the save page: the
     // active page is pitched away, then the prompt page is drawn with the same
@@ -26,13 +26,13 @@ fn build_page_model(page: OotPage, demo: &OotDemo, active_face: bool) -> MenuPag
     model
 }
 
-fn build_pause_hud_model(demo: &OotDemo) -> MenuPageModel<OotPage, OotAction> {
-    let mut model = MenuPageModel::new(demo.page, "Pause HUD", mc(Color::NONE));
+fn build_pause_hud_model(demo: &OotDemo) -> MenuPageModel<OotAction> {
+    let mut model = MenuPageModel::new(mc(Color::NONE));
     add_pause_hud_overlay(&mut model, demo, true);
     model
 }
 
-fn add_edge_buttons(model: &mut MenuPageModel<OotPage, OotAction>, _page: OotPage, active_face: bool, selected: OotAction) {
+fn add_edge_buttons(model: &mut MenuPageModel<OotAction>, _page: OotPage, active_face: bool, selected: OotAction) {
     model.control_with_icon(
         MenuRect::new(1.2, 38.0, 10.0, 24.0),
         MenuControlKind::Tab,
@@ -55,7 +55,7 @@ fn add_edge_buttons(model: &mut MenuPageModel<OotPage, OotAction>, _page: OotPag
     );
 }
 
-fn add_items_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, active_face: bool) {
+fn add_items_page(model: &mut MenuPageModel<OotAction>, demo: &OotDemo, active_face: bool) {
     model.panel(MenuRect::new(14.0, 20.0, 72.0, 54.0), mc(Color::srgba(0.02, 0.03, 0.055, 0.94)), None);
     let cols = 6;
     let cell_w = 10.0;
@@ -85,7 +85,7 @@ fn add_items_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo,
     }
 }
 
-fn add_save_prompt_panel(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo) {
+fn add_save_prompt_panel(model: &mut MenuPageModel<OotAction>, demo: &OotDemo) {
     // Prompt contents are the only contents on the active face after the flip
     // midpoint. Keep this opaque and sparse to avoid z-fighting with the normal
     // inventory/equipment/map/quest controls.
@@ -102,7 +102,7 @@ fn add_save_prompt_panel(model: &mut MenuPageModel<OotPage, OotAction>, demo: &O
     }
 }
 
-fn add_pause_hud_overlay(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, _active_face: bool) {
+fn add_pause_hud_overlay(model: &mut MenuPageModel<OotAction>, demo: &OotDemo, _active_face: bool) {
     // HUD elements are indicators layered over every pause face. They are not
     // focusable menu cells, and the explicit project instruction says the C/A/B
     // area must not become keyboard/gamepad cursor targets.
@@ -116,7 +116,7 @@ fn add_pause_hud_overlay(model: &mut MenuPageModel<OotPage, OotAction>, demo: &O
     }
 }
 
-fn add_health_and_magic(model: &mut MenuPageModel<OotPage, OotAction>) {
+fn add_health_and_magic(model: &mut MenuPageModel<OotAction>) {
     for i in 0..10 {
         let x = 6.0 + (i % 10) as f32 * 3.2;
         model.control_with_icon(
@@ -137,7 +137,7 @@ fn add_health_and_magic(model: &mut MenuPageModel<OotPage, OotAction>) {
     model.panel(MenuRect::new(6.7, 11.72, 20.9, 1.35), mc(Color::srgb(0.08, 0.72, 0.24)), None);
 }
 
-fn add_start_button_indicator(model: &mut MenuPageModel<OotPage, OotAction>) {
+fn add_start_button_indicator(model: &mut MenuPageModel<OotAction>) {
     model.control_with_icon(
         START_BUTTON_RECT,
         MenuControlKind::Decoration,
@@ -150,7 +150,7 @@ fn add_start_button_indicator(model: &mut MenuPageModel<OotPage, OotAction>) {
     );
 }
 
-fn add_action_button_indicators(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo) {
+fn add_action_button_indicators(model: &mut MenuPageModel<OotAction>, demo: &OotDemo) {
     let in_prompt = demo.save_modal_active();
     model.control_with_icon(
         B_BUTTON_RECT,
@@ -174,7 +174,7 @@ fn add_action_button_indicators(model: &mut MenuPageModel<OotPage, OotAction>, d
     );
 }
 
-fn add_c_button_assignments(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo) {
+fn add_c_button_assignments(model: &mut MenuPageModel<OotAction>, demo: &OotDemo) {
     // C-up is intentionally omitted: it is not an assignable inventory target in
     // this demo. Keep only the three yellow C targets, anchored in screen/HUD
     // space rather than baked into any rotating page face.
@@ -202,7 +202,7 @@ fn add_c_button_assignments(model: &mut MenuPageModel<OotPage, OotAction>, demo:
     }
 }
 
-fn add_equipment_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, active_face: bool) {
+fn add_equipment_page(model: &mut MenuPageModel<OotAction>, demo: &OotDemo, active_face: bool) {
     model.panel(MenuRect::new(14.0, 20.0, 72.0, 58.0), mc(Color::srgba(0.055, 0.042, 0.025, 1.0)), None);
 
     // Closer to OoT's equipment page: an upgrades column at far left, a player preview
@@ -286,7 +286,7 @@ fn equipment_preview_backing_color(demo: &OotDemo) -> Color {
     }
 }
 
-fn add_equipped_preview_badges(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo) {
+fn add_equipped_preview_badges(model: &mut MenuPageModel<OotAction>, demo: &OotDemo) {
     let slots = equip_slots();
     let sword = slots[0].choices[demo.equipped_sword];
     let shield = slots[1].choices[demo.equipped_shield];
@@ -318,7 +318,7 @@ fn add_equipped_preview_badges(model: &mut MenuPageModel<OotPage, OotAction>, de
     );
 }
 
-fn add_map_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, active_face: bool) {
+fn add_map_page(model: &mut MenuPageModel<OotAction>, demo: &OotDemo, active_face: bool) {
     // Keep the earlier relative marker placement, but use one opaque map plate plus
     // non-overlapping decorative cells to avoid depth shimmer on the angled face.
     model.panel(MenuRect::new(18.0, 19.0, 64.0, 60.0), mc(Color::srgba(0.022, 0.070, 0.048, 1.0)), None);
@@ -343,7 +343,7 @@ fn add_map_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, a
     model.text(50.0, 73.0, 2.55, "Map placeholder: relative locations preserved; simplified layers prevent flicker", MenuTextAlign::Center, mc(Color::srgb(0.74, 0.90, 0.74)));
 }
 
-fn add_quest_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo, active_face: bool) {
+fn add_quest_page(model: &mut MenuPageModel<OotAction>, demo: &OotDemo, active_face: bool) {
     model.panel(MenuRect::new(13.5, 18.5, 73.0, 61.0), mc(Color::srgba(0.055, 0.035, 0.070, 1.0)), None);
     model.text(26.0, 23.5, 2.5, "Songs", MenuTextAlign::Center, mc(Color::srgb(0.91, 0.83, 0.55)));
     model.text(69.0, 21.5, 2.5, "Quest Status", MenuTextAlign::Center, mc(Color::srgb(0.91, 0.83, 0.55)));
@@ -472,7 +472,7 @@ fn add_quest_page(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo,
     model.text(50.0, 78.7, 2.35, "Quest icons, songs, skulltulas, stones, and heart reminders", MenuTextAlign::Center, mc(Color::srgb(0.82, 0.72, 0.88)));
 }
 
-fn add_status_band(model: &mut MenuPageModel<OotPage, OotAction>, demo: &OotDemo) {
+fn add_status_band(model: &mut MenuPageModel<OotAction>, demo: &OotDemo) {
     model.panel(
         MenuRect::new(15.0, 86.0, 70.0, 8.0),
         mc(Color::srgba(0.02, 0.02, 0.03, 0.98)),

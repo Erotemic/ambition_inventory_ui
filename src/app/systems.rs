@@ -57,7 +57,6 @@ fn setup(
     let ring = commands
         .spawn((
             Name::new("OoT-style Lunex pause room"),
-            AmbitionMenuRoot,
             MenuRing,
             UiRoot3d,
             Transform::default(),
@@ -231,7 +230,6 @@ fn spawn_face(
         Name::new(format!("{} OoT face", page.label())),
         LunexFaceRoot,
         PageFace(page),
-        AmbitionMenuPage { id: page, active: page == demo.page },
         UiRoot3d,
         UiLayoutRoot::new_3d(),
         Dimension::from((PAGE_W, PAGE_H)),

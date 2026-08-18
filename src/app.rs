@@ -14,10 +14,8 @@ use bevy::window::{PresentMode, PrimaryWindow, SystemCursorIcon};
 use bevy::winit::WinitSettings;
 use bevy_lunex::prelude::*;
 
-use ambition_inventory_ui::{
-    AmbitionMenuControl, AmbitionMenuPage, AmbitionMenuRoot, MenuColor, MenuControlKind,
-    MenuFocusKey, MenuNode, MenuOpenCloseStyle, MenuPageModel, MenuRect, MenuShellConfig,
-    MenuShellEffect, MenuShellEffects, MenuShellPhase, MenuTextAlign, MenuVisualState,
+use crate::menu::{
+    MenuColor, MenuControlKind, MenuNode, MenuPageModel, MenuRect, MenuShellConfig, MenuTextAlign,
 };
 
 // Source-derived pause geometry notes:
@@ -31,7 +29,6 @@ const CAMERA_EYE: Vec3 = Vec3::new(0.0, 0.0, -2.20);
 const CAMERA_LOOK: Vec3 = Vec3::new(0.0, 0.0, 0.0);
 const INSIDE_PAGE_X_FLIP: f32 = -1.0;
 const OOT_PAGE_FOLD_RADIANS: f32 = 1.60;
-const MIN_OPEN_SCALE: f32 = 0.64;
 const DEPTH_BACKGROUND: f32 = -0.05;
 const DEPTH_LARGE_PANEL: f32 = -0.18;
 const DEPTH_CARD: f32 = -0.34;
@@ -106,14 +103,13 @@ pub(crate) fn run() {
             DefaultPlugins
                 .set(AssetPlugin {
                     // Bevy resolves asset paths relative to this demo crate by default
-                    // when running `cargo run -p oot_pause_demo`. Keep the canonical
-                    // generated icons at the workspace root and point the crate there.
-                    file_path: "../../assets".to_string(),
+                    // when running the demo. Load the demo assets directly from the repository root.
+                    file_path: "assets".to_string(),
                     ..default()
                 })
                 .set(WindowPlugin {
                     primary_window: Some(Window {
-                        title: "Ambition Inventory UI - OoT Functional Pause Demo".to_string(),
+                        title: "Bevy Lunex OoT Kaleidoscope Menu Demo".to_string(),
                         resolution: (1180, 760).into(),
                         // Do not emulate OoT's low presentation cadence. Keep animations
                         // time-based, but let the demo present as fast as the host can render.
@@ -137,16 +133,10 @@ pub(crate) fn run() {
         .insert_resource(OotDemo::default())
         .insert_resource(MenuAnimation::default())
         .insert_resource(MenuShell::default_open())
-        .insert_resource(MenuShellEffects::default())
         .insert_resource(FpsWindow::default())
         .insert_resource(GamepadCStickState::default())
         .insert_resource(GamepadNavStickState::default())
-        .insert_resource(MenuShellConfig {
-            open_close_style: MenuOpenCloseStyle::OotPageFold,
-            page_rotate_speed: 5.2,
-            open_close_speed: 8.0,
-            ..Default::default()
-        })
+        .insert_resource(MenuShellConfig::default())
         .add_systems(Startup, setup)
         .add_systems(Update, menu_toggle_input)
         .add_systems(

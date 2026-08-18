@@ -374,9 +374,7 @@ fn animate_menu_ring(
     config: Res<MenuShellConfig>,
     mut menu: ResMut<MenuAnimation>,
     mut shell: ResMut<MenuShell>,
-    mut effects: ResMut<MenuShellEffects>,
     demo: Res<OotDemo>,
-    mut last_phase: Local<Option<MenuShellPhase>>,
     mut ring_query: Query<(&mut Transform, &mut Visibility), (With<MenuRing>, Without<LunexFaceRoot>)>,
     mut face_query: Query<(&PageFace, &mut Transform), (With<LunexFaceRoot>, Without<MenuRing>)>,
     mut hud_query: Query<(&mut Transform, &mut Visibility), (With<HudOverlayRoot>, Without<MenuRing>, Without<LunexFaceRoot>)>,
@@ -405,37 +403,14 @@ fn animate_menu_ring(
         hud_transform.scale = Vec3::new(HUD_SCREEN_X_FLIP, 1.0, 1.0);
         hud_transform.rotation = Quat::IDENTITY;
     }
-    let phase = shell.phase();
-    if *last_phase != Some(phase) {
-        effects.push(match phase {
-            MenuShellPhase::Opening => MenuShellEffect::Opening,
-            MenuShellPhase::Open => MenuShellEffect::Opened,
-            MenuShellPhase::Closing => MenuShellEffect::Closing,
-            MenuShellPhase::Closed => MenuShellEffect::Closed,
-        });
-        *last_phase = Some(phase);
-    }
     let open = smoothstep(shell.openness.clamp(0.0, 1.0));
     transform.rotation = Quat::from_rotation_y(menu.current_angle);
-    match config.open_close_style {
-        MenuOpenCloseStyle::SmoothScale => {
-            let scale = MIN_OPEN_SCALE + (1.0 - MIN_OPEN_SCALE) * open;
-            transform.scale = Vec3::splat(scale);
-            transform.translation = Vec3::new(0.0, -0.05 * (1.0 - open), -0.42 * (1.0 - open));
-            for (face, mut t) in &mut face_query {
-                reset_face_transform(face.0, &mut t);
-                apply_save_flip(face.0, demo.page, demo.save_flip, &mut t);
-            }
-        }
-        MenuOpenCloseStyle::OotPageFold => {
-            transform.scale = Vec3::ONE;
-            transform.translation = Vec3::new(0.0, -0.10 * (1.0 - open), 0.0);
-            let fold = OOT_PAGE_FOLD_RADIANS * (1.0 - open);
-            for (face, mut t) in &mut face_query {
-                apply_oot_open_fold(face.0, fold, &mut t);
-                apply_save_flip(face.0, demo.page, demo.save_flip, &mut t);
-            }
-        }
+    transform.scale = Vec3::ONE;
+    transform.translation = Vec3::new(0.0, -0.10 * (1.0 - open), 0.0);
+    let fold = OOT_PAGE_FOLD_RADIANS * (1.0 - open);
+    for (face, mut t) in &mut face_query {
+        apply_oot_open_fold(face.0, fold, &mut t);
+        apply_save_flip(face.0, demo.page, demo.save_flip, &mut t);
     }
 }
 
@@ -447,7 +422,7 @@ impl HitRect {
 #[derive(Clone, Copy, Debug)]
 struct HitTarget { rect: HitRect, action: OotAction }
 
-fn model_hit_targets(model: &MenuPageModel<OotPage, OotAction>) -> Vec<HitTarget> {
+fn model_hit_targets(model: &MenuPageModel<OotAction>) -> Vec<HitTarget> {
     model.nodes.iter().filter_map(|node| match node {
         MenuNode::Panel { rect, action: Some(action), .. } => Some(HitTarget { rect: HitRect { x: rect.x, y: rect.y, w: rect.w, h: rect.h }, action: *action }),
         MenuNode::Control { rect, action: Some(action), .. } => Some(HitTarget { rect: HitRect { x: rect.x, y: rect.y, w: rect.w, h: rect.h }, action: *action }),
@@ -612,7 +587,7 @@ fn lerp_vec2(a: Vec2, b: Vec2, t: f32) -> Vec2 {
     a + (b - a) * smoothstep(t.clamp(0.0, 1.0))
 }
 
-fn add_equip_anim_visual(model: &mut MenuPageModel<OotPage, OotAction>, anim: EquipAnim) {
+fn add_equip_anim_visual(model: &mut MenuPageModel<OotAction>, anim: EquipAnim) {
     let t = anim.progress.clamp(0.0, 1.0);
     let (pos, icon, label, size) = match anim.phase {
         EquipAnimPhase::ItemToButton => (lerp_vec2(anim.from, anim.to, t), oot_items()[anim.item_idx].icon, "", 7.0),

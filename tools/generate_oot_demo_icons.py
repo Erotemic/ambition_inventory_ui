@@ -2,9 +2,8 @@
 """Generate stylized placeholder icons for the OoT pause-menu demo.
 
 The icons are original, procedural approximations meant for the demo UI. They
-match the filenames used by `crates/oot_pause_demo/src/main.rs` and follow the
-same high-level item families seen in the OoT decomp references, especially
-`include/item.h` and `src/code/z_inventory.c`, without copying game assets.
+match the filenames used by the demo and follow the same high-level item
+families seen in Ocarina of Time without copying game assets.
 
 Usage:
     python3 tools/generate_oot_demo_icons.py
@@ -800,7 +799,6 @@ def build_icons(size: int) -> Dict[str, Image.Image]:
         "iron_boots.png": draw_boots(size, GRAY),
         "hover_boots.png": draw_boots(size, rgba("#c9a35d"), wing=True),
         "map_marker.png": draw_marker(size),
-        "player.png": draw_player(size),
         "player_kokiri_tunic.png": draw_player(size, GREEN),
         "player_goron_tunic.png": draw_player(size, RED),
         "player_zora_tunic.png": draw_player(size, BLUE),
