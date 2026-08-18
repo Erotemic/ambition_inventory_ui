@@ -152,33 +152,38 @@ fn update_fps_debug_overlay(
 
 fn sync_page_content_visibility(
     demo: Res<OotDemo>,
-    mut normal_query: Query<(&NormalPageContent, &mut Visibility)>,
-    mut choice_query: Query<(&SavePromptChoiceContent, &mut Visibility)>,
-    mut complete_query: Query<(&SavePromptCompleteContent, &mut Visibility)>,
+    mut query: Query<(
+        &mut Visibility,
+        Option<&NormalPageContent>,
+        Option<&SavePromptChoiceContent>,
+        Option<&SavePromptCompleteContent>,
+    )>,
 ) {
     let prompt_visible = demo.save_prompt_face_visible();
-    for (content, mut visibility) in &mut normal_query {
-        let desired = if content.0 == demo.page && prompt_visible {
-            Visibility::Hidden
+
+    for (mut visibility, normal, choice, complete) in &mut query {
+        let desired = if let Some(content) = normal {
+            if content.0 == demo.page && prompt_visible {
+                Visibility::Hidden
+            } else {
+                Visibility::Visible
+            }
+        } else if let Some(content) = choice {
+            if content.0 == demo.page && prompt_visible && !demo.save_complete {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            }
+        } else if let Some(content) = complete {
+            if content.0 == demo.page && prompt_visible && demo.save_complete {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            }
         } else {
-            Visibility::Visible
+            continue;
         };
-        visibility.set_if_neq(desired);
-    }
-    for (content, mut visibility) in &mut choice_query {
-        let desired = if content.0 == demo.page && prompt_visible && !demo.save_complete {
-            Visibility::Visible
-        } else {
-            Visibility::Hidden
-        };
-        visibility.set_if_neq(desired);
-    }
-    for (content, mut visibility) in &mut complete_query {
-        let desired = if content.0 == demo.page && prompt_visible && demo.save_complete {
-            Visibility::Visible
-        } else {
-            Visibility::Hidden
-        };
+
         visibility.set_if_neq(desired);
     }
 }
@@ -386,10 +391,10 @@ fn set_material_color_if_changed(
     let needs_update = materials
         .get(handle)
         .is_some_and(|material| material.base_color != desired);
-    if needs_update
-        && let Some(mut material) = materials.get_mut(handle)
-    {
-        material.base_color = desired;
+    if needs_update {
+        if let Some(mut material) = materials.get_mut(handle) {
+            material.base_color = desired;
+        }
     }
 }
 
@@ -401,10 +406,10 @@ fn set_material_texture_if_changed(
     let needs_update = materials
         .get(handle)
         .is_some_and(|material| material.base_color_texture.as_ref() != Some(&desired));
-    if needs_update
-        && let Some(mut material) = materials.get_mut(handle)
-    {
-        material.base_color_texture = Some(desired);
+    if needs_update {
+        if let Some(mut material) = materials.get_mut(handle) {
+            material.base_color_texture = Some(desired);
+        }
     }
 }
 
