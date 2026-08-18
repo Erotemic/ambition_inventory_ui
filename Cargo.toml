@@ -7,8 +7,8 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-bevy = "0.18.1"
-bevy_lunex = "=0.6.0"
+bevy = "0.19.0"
+bevy_lunex = { git = "ssh://git@github.com/Erotemic/bevy_lunex", branch = "bevy_0_19" }
 
 [profile.dev]
 opt-level = 1
