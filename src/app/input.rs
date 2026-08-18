@@ -250,11 +250,17 @@ fn nav_direction_from_left_stick(x: f32, y: f32) -> Option<(i32, i32)> {
 }
 
 
-fn animate_equip_and_save(time: Res<Time>, shell: Res<MenuShell>, mut demo: ResMut<OotDemo>) {
+fn animate_equip_and_save(
+    time: Res<Time>,
+    readme_capture: Option<Res<ReadmeCapture>>,
+    shell: Res<MenuShell>,
+    mut demo: ResMut<OotDemo>,
+) {
     if !shell.is_visible() {
         return;
     }
-    let save_step = 1.0 - (-SAVE_FLIP_SPEED * time.delta_secs()).exp();
+    let delta_secs = readme_animation_delta_secs(&time, readme_capture.as_deref());
+    let save_step = 1.0 - (-SAVE_FLIP_SPEED * delta_secs).exp();
     let next_save = demo.save_flip + (demo.save_flip_target - demo.save_flip) * save_step;
     if (next_save - demo.save_flip).abs() > 0.001 {
         // The flip is a transform animation, not a content rebuild animation.
@@ -305,7 +311,7 @@ fn animate_equip_and_save(time: Res<Time>, shell: Res<MenuShell>, mut demo: ResM
             EquipAnimPhase::ArrowBowHold => 3.5,
             EquipAnimPhase::BowToButton => 4.5,
         };
-        anim.progress += time.delta_secs() * speed;
+        anim.progress += delta_secs * speed;
         if anim.progress >= 1.0 {
             match anim.phase {
                 EquipAnimPhase::ItemToButton => {
@@ -371,6 +377,7 @@ fn mouse_navigation(mut wheel: MessageReader<MouseWheel>, shell: Res<MenuShell>,
 
 fn animate_menu_ring(
     time: Res<Time>,
+    readme_capture: Option<Res<ReadmeCapture>>,
     config: Res<MenuShellConfig>,
     mut menu: ResMut<MenuAnimation>,
     mut shell: ResMut<MenuShell>,
@@ -380,14 +387,15 @@ fn animate_menu_ring(
     mut hud_query: Query<(&mut Transform, &mut Visibility), (With<HudOverlayRoot>, Without<MenuRing>, Without<LunexFaceRoot>)>,
 ) {
     let Ok((mut transform, mut visibility)) = ring_query.single_mut() else { return; };
+    let delta_secs = readme_animation_delta_secs(&time, readme_capture.as_deref());
     let delta = shortest_angle_delta(menu.current_angle, menu.target_angle);
-    let rotate_step = 1.0 - (-config.page_rotate_speed * time.delta_secs()).exp();
+    let rotate_step = 1.0 - (-config.page_rotate_speed * delta_secs).exp();
     menu.current_angle += delta * rotate_step;
     if delta.abs() < 0.001 {
         menu.current_angle = menu.target_angle;
     }
     let target = if shell.target_open { 1.0 } else { 0.0 };
-    let open_step = 1.0 - (-config.open_close_speed * time.delta_secs()).exp();
+    let open_step = 1.0 - (-config.open_close_speed * delta_secs).exp();
     shell.openness += (target - shell.openness) * open_step;
     if (shell.openness - target).abs() < 0.002 {
         shell.openness = target;

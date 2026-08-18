@@ -74,22 +74,6 @@ fn setup(
     spawn_hud_overlay(&mut commands, &demo, &mut materials, &asset_server);
 }
 
-fn prepare_readme_capture_frame(
-    readme_capture: Option<Res<ReadmeCapture>>,
-    mut menu: ResMut<MenuAnimation>,
-    mut shell: ResMut<MenuShell>,
-) {
-    let Some(readme_capture) = readme_capture else { return; };
-    if readme_capture.is_complete() {
-        return;
-    }
-    let angle = readme_capture.current_angle();
-    menu.current_angle = angle;
-    menu.target_angle = angle;
-    shell.openness = 1.0;
-    shell.target_open = true;
-}
-
 fn request_readme_capture_frame(
     mut commands: Commands,
     mut readme_capture: Option<ResMut<ReadmeCapture>>,
@@ -269,8 +253,8 @@ fn spawn_all_faces(
     capture_all_faces: bool,
 ) {
     // Interactive mode keeps only the three faces that can be visible from the
-    // current page. README capture rotates the ring through a full 360 degrees,
-    // so it temporarily keeps the opposite face alive as well.
+    // current page. README capture keeps the fourth face alive too so scripted
+    // page turns never depend on an asynchronous face rebuild landing in time.
     if capture_all_faces {
         for page in OotDemo::pages() {
             spawn_face(ring, page, demo, materials, asset_server);

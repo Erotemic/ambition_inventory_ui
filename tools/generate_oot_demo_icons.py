@@ -46,6 +46,100 @@ BLACK = (12, 12, 16, 255)
 WHITE = (255, 255, 245, 255)
 
 
+
+EXPECTED_ICON_FILENAMES = frozenset(
+    """
+beans.png
+biggoron_sword.png
+bomb.png
+bombchu.png
+boomerang.png
+bottle.png
+bow.png
+claim_check.png
+deku_nut.png
+deku_shield.png
+deku_stick.png
+dins_fire.png
+edge_left.png
+edge_right.png
+farores_wind.png
+fire_arrow.png
+gerudo_card.png
+goron_tunic.png
+hammer.png
+heart_piece.png
+hover_boots.png
+hud_button_a.png
+hud_button_b.png
+hud_button_c_down.png
+hud_button_c_left.png
+hud_button_c_right.png
+hud_start.png
+hylian_shield.png
+ice_arrow.png
+iron_boots.png
+kokiri_boots.png
+kokiri_sword.png
+kokiri_tunic.png
+lens.png
+light_arrow.png
+longshot.png
+map_marker.png
+mask.png
+master_sword.png
+med_fire.png
+med_forest.png
+med_light.png
+med_shadow.png
+med_spirit.png
+med_water.png
+milk.png
+mirror_shield.png
+nayrus_love.png
+ocarina.png
+player_goron_tunic.png
+player_kokiri_tunic.png
+player_zora_tunic.png
+poe.png
+skull_token.png
+slingshot.png
+song_bolero.png
+song_button_a.png
+song_button_c.png
+song_epona.png
+song_lullaby.png
+song_minuet.png
+song_nocturne.png
+song_prelude.png
+song_requiem.png
+song_saria.png
+song_serenade.png
+song_storms.png
+song_sun.png
+song_time.png
+stone_agony.png
+stone_emerald.png
+stone_ruby.png
+stone_sapphire.png
+zora_tunic.png
+""".split()
+)
+
+
+def icons_are_current(out_dir: Path, size: int) -> bool:
+    for filename in EXPECTED_ICON_FILENAMES:
+        path = out_dir / filename
+        if not path.is_file():
+            return False
+        try:
+            with Image.open(path) as image:
+                if image.size != (size, size):
+                    return False
+        except OSError:
+            return False
+    return True
+
 _FONT_CACHE: dict[tuple[int, bool], ImageFont.ImageFont] = {}
 
 
@@ -849,7 +943,13 @@ def main() -> int:
         "--out", type=Path, default=Path("assets/icons/oot"), help="output directory"
     )
     parser.add_argument("--size", type=int, default=96, help="icon size in pixels")
+    parser.add_argument(
+        "--force", action="store_true", help="regenerate even when every icon already exists"
+    )
     args = parser.parse_args()
+    if not args.force and icons_are_current(args.out, args.size):
+        print(f"Found all {len(EXPECTED_ICON_FILENAMES)} icons in {args.out}; skipping generation")
+        return 0
     args.out.mkdir(parents=True, exist_ok=True)
     icons = build_icons(args.size)
     for filename, image in sorted(icons.items()):

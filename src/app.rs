@@ -154,30 +154,24 @@ pub(crate) fn run() {
         app.insert_resource(capture);
     }
 
-    app.add_systems(Startup, setup)
-        .add_systems(Update, menu_toggle_input)
-        .add_systems(
-            Update,
-            (
-                keyboard_navigation,
-                mouse_navigation,
-                pointer_hit_test,
-                gamepad_navigation,
-            ),
+    app.add_systems(Startup, setup).add_systems(
+        Update,
+        (
+            drive_readme_demo_input,
+            menu_toggle_input,
+            keyboard_navigation,
+            mouse_navigation,
+            pointer_hit_test,
+            gamepad_navigation,
+            animate_equip_and_save,
+            rebuild_lunex_faces,
+            animate_menu_ring,
+            request_readme_capture_frame,
+            advance_readme_capture_frame,
+            update_fps_debug_overlay,
         )
-        .add_systems(
-            Update,
-            (
-                prepare_readme_capture_frame,
-                animate_equip_and_save,
-                rebuild_lunex_faces,
-                animate_menu_ring,
-                request_readme_capture_frame,
-                advance_readme_capture_frame,
-                update_fps_debug_overlay,
-            )
-                .chain(),
-        );
+            .chain(),
+    );
 
     app.run();
 }
@@ -187,6 +181,7 @@ pub(crate) fn run() {
 // structural and behavior-preserving: no visibility churn or public API
 // expansion is required just to make the code navigable.
 include!("app/state.rs");
+include!("app/capture.rs");
 include!("app/data.rs");
 include!("app/models.rs");
 include!("app/render.rs");

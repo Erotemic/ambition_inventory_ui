@@ -721,6 +721,7 @@ struct ReadmeCapture {
     output_dir: std::path::PathBuf,
     frame_count: u32,
     next_frame: u32,
+    fps: u32,
     warmup_frames_remaining: u32,
     waiting_for_capture: bool,
     capture_started: bool,
@@ -732,11 +733,16 @@ impl ReadmeCapture {
     fn from_env() -> Option<Self> {
         let output_dir = std::env::var_os("OOT_CAPTURE_FRAMES_DIR")
             .map(std::path::PathBuf::from)?;
+        let fps = std::env::var("OOT_CAPTURE_FPS")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .filter(|fps: &u32| *fps > 0)
+            .unwrap_or(12);
         let frame_count = std::env::var("OOT_CAPTURE_FRAME_COUNT")
             .ok()
             .and_then(|value| value.parse().ok())
             .filter(|count: &u32| *count > 0)
-            .unwrap_or(60);
+            .unwrap_or(fps * 15);
         let warmup_frames_remaining = std::env::var("OOT_CAPTURE_WARMUP_FRAMES")
             .ok()
             .and_then(|value| value.parse().ok())
@@ -757,6 +763,7 @@ impl ReadmeCapture {
             output_dir,
             frame_count,
             next_frame: 0,
+            fps,
             warmup_frames_remaining,
             waiting_for_capture: false,
             capture_started: false,
@@ -773,8 +780,14 @@ impl ReadmeCapture {
         self.next_frame >= self.frame_count
     }
 
-    fn current_angle(&self) -> f32 {
-        -(self.next_frame as f32 / self.frame_count as f32) * std::f32::consts::TAU
+    fn should_step_simulation(&self) -> bool {
+        !self.is_complete()
+            && self.warmup_frames_remaining == 0
+            && !self.waiting_for_capture
+    }
+
+    fn frame_delta_secs(&self) -> f32 {
+        1.0 / self.fps as f32
     }
 
     fn current_frame_path(&self) -> std::path::PathBuf {
