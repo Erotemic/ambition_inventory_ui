@@ -6,7 +6,7 @@ fn setup(
     readme_capture: Option<Res<ReadmeCapture>>,
 ) {
     commands.spawn((
-        DirectionalLight { illuminance: 2800.0, shadows_enabled: false, ..default() },
+        DirectionalLight { illuminance: 2800.0, shadow_maps_enabled: false, ..default() },
         Transform::from_xyz(1.5, 3.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
     let mut cube_camera = commands.spawn((
@@ -47,7 +47,7 @@ fn setup(
         commands.spawn((
             FpsDebugText,
             Text::new("fps: collecting..."),
-            TextFont { font_size: 14.0, ..default() },
+            TextFont { font_size: FontSize::Px(14.0), ..default() },
             TextColor(Color::srgba(0.86, 0.95, 0.88, 0.92)),
             Node {
                 position_type: PositionType::Absolute,
