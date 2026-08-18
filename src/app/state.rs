@@ -16,7 +16,6 @@ struct OotDemo {
     save_return_selection: OotAction,
     equip_anim: Option<EquipAnim>,
     status: String,
-    revision: u64,
 }
 
 impl Default for OotDemo {
@@ -38,16 +37,11 @@ impl Default for OotDemo {
             save_return_selection: OotAction::Item(3),
             equip_anim: None,
             status: "Complete inventory demo. Pick an item, assign it to C, or press B to save.".to_string(),
-            revision: 0,
         }
     }
 }
 
 impl OotDemo {
-    fn bump(&mut self) {
-        self.revision = self.revision.wrapping_add(1);
-    }
-
     fn save_modal_active(&self) -> bool {
         // Treat the save prompt as modal while it is opening, visible, or still
         // on the prompt side of the closing flip. Once the closing flip crosses
@@ -65,7 +59,6 @@ impl OotDemo {
         if self.selected != OotAction::SaveYes {
             self.selected = OotAction::SaveYes;
             self.status = "Save: YES".to_string();
-            self.bump();
         }
     }
 
@@ -73,7 +66,6 @@ impl OotDemo {
         if self.selected != OotAction::SaveNo {
             self.selected = OotAction::SaveNo;
             self.status = "Save: NO".to_string();
-            self.bump();
         }
     }
 
@@ -95,7 +87,6 @@ impl OotDemo {
             self.page = page;
             self.selected = Self::default_action_for_page(page);
             self.status = format!("{} page", page.label());
-            self.bump();
         }
     }
 
@@ -134,7 +125,6 @@ impl OotDemo {
                 PageTurn::ViewerRight => OotAction::EdgeLeft,
             };
             self.status = format!("{} page", target.label());
-            self.bump();
         }
     }
 
@@ -159,15 +149,10 @@ impl OotDemo {
     }
 
     fn hover(&mut self, action: OotAction) {
-        let old_selected = self.selected;
-        let old_status = self.status.clone();
         if action.is_focusable_for(self) {
             self.selected = action;
         }
         self.status = action.describe_hover(self);
-        if self.selected != old_selected || self.status != old_status {
-            self.bump();
-        }
     }
 
     fn click(&mut self, action: OotAction) {
@@ -179,20 +164,17 @@ impl OotDemo {
                 OotAction::Item(idx) => {
                     let item = oot_items()[idx];
                     self.status = format!("{} is child-only and disabled for Adult Link.", item.name);
-                    self.bump();
                     return;
                 }
                 OotAction::EquipChoice { slot, choice } => {
                     let option = equip_slots()[slot].choices[choice];
                     self.status = format!("{} is child-only and disabled for Adult Link.", option.name);
-                    self.bump();
                     return;
                 }
                 _ => {}
             }
         }
         match action {
-            // OoT-style edge prompts: left/right are physical directions from the player's view.
             OotAction::EdgeLeft => self.turn_page_from_edge(PageTurn::ViewerLeft),
             OotAction::EdgeRight => self.turn_page_from_edge(PageTurn::ViewerRight),
             OotAction::Item(idx) => {
@@ -202,19 +184,15 @@ impl OotDemo {
                 } else {
                     self.status = format!("{} selected. Press Z/X/C to assign.", item.name);
                 }
-                self.bump();
             }
             OotAction::AssignC(button) => {
                 if let OotAction::Item(idx) = previous_selected {
                     self.start_c_button_equip(idx, button);
                 } else {
                     self.status = "Select an item first, then assign it to a C-button.".to_string();
-                    self.bump();
                 }
             }
-            OotAction::Save => {
-                self.open_save_prompt();
-            }
+            OotAction::Save => self.open_save_prompt(),
             OotAction::SaveYes => {
                 if self.save_complete {
                     self.close_save_prompt("Returned to the pause menu.");
@@ -233,7 +211,6 @@ impl OotDemo {
                 let option = equip_slots()[slot].choices[choice];
                 if !option.usable_by_current_link() {
                     self.status = format!("{} is child-only in this Adult Link demo.", option.name);
-                    self.bump();
                     return;
                 }
                 match slot {
@@ -243,22 +220,18 @@ impl OotDemo {
                     _ => self.equipped_boots = choice,
                 }
                 self.status = format!("Equipped {}.", option.name);
-                self.bump();
             }
             OotAction::MapMarker(idx) => {
                 let marker = map_markers()[idx];
                 self.status = format!("Map marker: {}.", marker.name);
-                self.bump();
             }
             OotAction::QuestIcon(idx) => {
                 let q = all_quest_icons()[idx];
                 self.status = format!("{} achieved.", q.name);
-                self.bump();
             }
             OotAction::Song(idx) => {
                 let song = songs()[idx];
                 self.status = format!("{} reminder: {}", song.name, song.pattern);
-                self.bump();
             }
         }
     }
@@ -274,7 +247,6 @@ impl OotDemo {
         self.save_flip_target = 1.0;
         self.selected = OotAction::SaveYes;
         self.status = "Save? Choose Yes or No. The active page flips around its horizontal center line.".to_string();
-        self.bump();
     }
 
     fn confirm_save(&mut self) {
@@ -287,7 +259,6 @@ impl OotDemo {
         self.save_complete = true;
         self.selected = OotAction::SaveNo;
         self.status = "Saved. Press A, B, Start, Enter, or Space to return.".to_string();
-        self.bump();
     }
 
     fn close_save_prompt(&mut self, status: &str) {
@@ -308,7 +279,6 @@ impl OotDemo {
             self.selected = OotAction::SaveNo;
         }
         self.status = status.to_string();
-        self.bump();
     }
 
     fn toggle_save_prompt(&mut self) {
@@ -323,7 +293,6 @@ impl OotDemo {
         let item = oot_items()[item_idx];
         if !item.usable_by_current_link() {
             self.status = format!("{} cannot be assigned by Adult Link.", item.name);
-            self.bump();
             return;
         }
         let button_idx = button.index();
@@ -347,7 +316,6 @@ impl OotDemo {
         // Functional OoT behavior happens at animation completion, but keep the
         // target unique immediately so the button preview never duplicates slots.
         self.preview_unique_c_button(item_idx, button_idx);
-        self.bump();
     }
 
     fn preview_unique_c_button(&mut self, item_idx: usize, button_idx: usize) {
@@ -369,7 +337,6 @@ impl OotDemo {
         self.preview_unique_c_button(item_idx, button.index());
         self.status = format!("Assigned {} to C-{}.", oot_items()[item_idx].name, button.label());
         self.equip_anim = None;
-        self.bump();
     }
 
     fn assign_selected_item_to_c_button(&mut self, button: CButton) {
@@ -377,7 +344,6 @@ impl OotDemo {
             let item = oot_items()[idx];
             if !item.usable_by_current_link() {
                 self.status = format!("{} is disabled for Adult Link and cannot be assigned.", item.name);
-                self.bump();
                 return;
             }
             // C-buttons are status indicators in the pause HUD, not focusable
@@ -386,7 +352,6 @@ impl OotDemo {
             self.start_c_button_equip(idx, button);
         } else {
             self.status = "Move the cursor to an inventory item before assigning it to a C-button.".to_string();
-            self.bump();
         }
     }
 
@@ -715,6 +680,50 @@ struct FpsDebugText;
 struct HudOverlayRoot;
 #[derive(Component)]
 struct MainPauseCamera;
+
+#[derive(Component, Clone, Copy, Debug)]
+struct NormalPageContent(OotPage);
+
+#[derive(Component, Clone, Copy, Debug)]
+struct SavePromptChoiceContent(OotPage);
+
+#[derive(Component, Clone, Copy, Debug)]
+struct SavePromptCompleteContent(OotPage);
+
+#[derive(Component, Clone, Debug)]
+struct SelectionCursor {
+    page: OotPage,
+    action: OotAction,
+    material: Handle<StandardMaterial>,
+}
+
+#[derive(Component)]
+struct PageStatusText;
+
+#[derive(Component, Clone, Copy, Debug)]
+struct EquipmentChoiceVisual {
+    slot: usize,
+    choice: usize,
+    disabled: bool,
+}
+
+#[derive(Component)]
+struct EquipmentPreviewBacking;
+
+#[derive(Component)]
+struct EquipmentPlayerPreview;
+
+#[derive(Component, Clone, Copy, Debug)]
+struct EquipmentPreviewBadge(usize);
+
+#[derive(Component)]
+struct EquipmentPreviewText;
+
+#[derive(Component, Clone, Copy, Debug)]
+struct HudActionIcon(OotAction);
+
+#[derive(Component)]
+struct EquipAnimationVisual;
 
 #[derive(Resource, Clone, Debug)]
 struct ReadmeCapture {

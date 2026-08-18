@@ -57,18 +57,10 @@ fn spawn_hud_control(
         MeshMaterial3d(material),
         RenderLayers::layer(HUD_RENDER_LAYER),
     ));
-    if action.is_some() {
-        entity.insert((
-            OnHoverSetCursor::new(SystemCursorIcon::Pointer),
-            UiHover::new().forward_speed(18.0).backward_speed(10.0),
-            UiColor::new(vec![(UiBase::id(), color), (UiHover::id(), hover_panel_color())]),
-        ));
-    } else {
-        entity.insert((UiColor::from(color), Pickable::IGNORE));
-    }
+    entity.insert(Pickable::IGNORE);
     entity.with_children(|children| {
         if let Some(icon_path) = icon {
-            spawn_hud_icon(children, materials, asset_server, icon_path);
+            spawn_hud_icon(children, materials, asset_server, icon_path, action);
         }
         if !label.is_empty() {
             spawn_hud_control_text(children, materials, if icon.is_some() { 62.0 } else { 50.0 }, 45.0, 22.0, label, TextAlign::Center, Srgba::rgb_u8(240, 232, 198));
@@ -85,6 +77,7 @@ fn spawn_hud_icon(
     materials: &mut Assets<StandardMaterial>,
     asset_server: &AssetServer,
     icon: &str,
+    action: Option<OotAction>,
 ) {
     let texture = asset_server.load(icon.to_string());
     let material = materials.add(StandardMaterial {
@@ -95,7 +88,7 @@ fn spawn_hud_icon(
         unlit: true,
         ..default()
     });
-    ui.spawn((
+    let mut icon_entity = ui.spawn((
         Name::new(format!("HUD icon {icon}")),
         UiLayout::window().x(Rl(50.0)).y(Rl(50.0)).width(Rl(92.0)).height(Rh(92.0)).anchor(Anchor::CENTER).pack(),
         UiDepth::Set(DEPTH_HUD_ICON),
@@ -104,6 +97,9 @@ fn spawn_hud_icon(
         Pickable::IGNORE,
         RenderLayers::layer(HUD_RENDER_LAYER),
     ));
+    if let Some(action) = action {
+        icon_entity.insert(HudActionIcon(action));
+    }
 }
 
 fn spawn_hud_control_text(ui: &mut ChildSpawnerCommands, materials: &mut Assets<StandardMaterial>, x: f32, y: f32, size: f32, text: &str, align: TextAlign, color: Srgba) {
@@ -142,11 +138,8 @@ fn spawn_hud_panel(
         MeshMaterial3d(material),
         RenderLayers::layer(HUD_RENDER_LAYER),
     ));
-    if action.is_some() {
-        entity.insert((OnHoverSetCursor::new(SystemCursorIcon::Pointer), UiHover::new().forward_speed(18.0).backward_speed(10.0), UiColor::new(vec![(UiBase::id(), color), (UiHover::id(), hover_panel_color())])));
-    } else {
-        entity.insert((UiColor::from(color), Pickable::IGNORE));
-    }
+    let _ = action;
+    entity.insert(Pickable::IGNORE);
 }
 
 fn spawn_hud_text(ui: &mut ChildSpawnerCommands, materials: &mut Assets<StandardMaterial>, x: f32, y: f32, size: f32, text: &str, align: TextAlign, color: Srgba) {
@@ -169,6 +162,7 @@ fn render_page_model(
     ui: &mut ChildSpawnerCommands,
     materials: &mut Assets<StandardMaterial>,
     asset_server: &AssetServer,
+    page: OotPage,
     model: &MenuPageModel<OotAction>,
 ) {
     spawn_panel(ui, materials, 0.0, 0.0, 100.0, 100.0, menu_color(model.background), None);
@@ -178,7 +172,7 @@ fn render_page_model(
             MenuNode::Panel { rect, color, action } => spawn_panel(ui, materials, rect.x, rect.y, rect.w, rect.h, menu_color(*color), *action),
             MenuNode::Text { x, y, size, text, align, color } => spawn_text(ui, materials, *x, *y, *size, text, menu_align(*align), menu_srgba(*color)),
             MenuNode::Control { rect, kind, label, detail, icon, selected, important, action } => {
-                spawn_control(ui, materials, asset_server, *rect, *kind, label, detail.as_deref(), icon.as_deref(), *selected, *important, *action);
+                spawn_control(ui, materials, asset_server, page, *rect, *kind, label, detail.as_deref(), icon.as_deref(), *selected, *important, *action);
             }
         }
     }
@@ -188,6 +182,7 @@ fn spawn_control(
     ui: &mut ChildSpawnerCommands,
     materials: &mut Assets<StandardMaterial>,
     asset_server: &AssetServer,
+    page: OotPage,
     rect: MenuRect,
     kind: MenuControlKind,
     label: &str,
@@ -198,7 +193,7 @@ fn spawn_control(
     action: Option<OotAction>,
 ) {
     let disabled = is_disabled_control(kind, action);
-    let color = if disabled { disabled_control_color() } else { control_color(kind, selected, important) };
+    let color = if disabled { disabled_control_color() } else { control_color(kind, false, important) };
     let material = materials.add(StandardMaterial {
         base_color: color,
         alpha_mode: AlphaMode::Opaque,
@@ -219,22 +214,17 @@ fn spawn_control(
         UiMeshPlane3d,
         MeshMaterial3d(material),
     ));
-    if action.is_some() {
-        entity.insert((
-            OnHoverSetCursor::new(SystemCursorIcon::Pointer),
-            UiHover::new().forward_speed(18.0).backward_speed(10.0),
-            UiColor::new(vec![(UiBase::id(), color), (UiHover::id(), hover_panel_color())]),
-        ));
-    } else {
-        entity.insert((UiColor::from(color), Pickable::IGNORE));
+    entity.insert(Pickable::IGNORE);
+    if let Some(OotAction::EquipChoice { slot, choice }) = action {
+        entity.insert(EquipmentChoiceVisual { slot, choice, disabled });
     }
     entity.with_children(|children| {
         let icon_is_primary = matches!(kind, MenuControlKind::Item | MenuControlKind::MapMarker | MenuControlKind::Decoration);
         if let Some(icon_path) = icon {
             spawn_icon(children, materials, asset_server, icon_path, icon_is_primary, disabled);
         }
-        if selected {
-            spawn_selection_corners(children, materials);
+        if let Some(action) = action {
+            spawn_selection_corners(children, materials, page, action, selected);
         }
         if icon_is_primary {
             if !label.is_empty() {
@@ -293,35 +283,58 @@ fn spawn_icon(
     ));
 }
 
-fn spawn_selection_corners(ui: &mut ChildSpawnerCommands, materials: &mut Assets<StandardMaterial>) {
-    let color = Color::WHITE;
-    let l = 22.0;
-    let t = 5.8;
-    // OoT-style focus selection: white square corner brackets. This is separate
-    // from the warm fill used for hover/equipped state.
-    spawn_corner_piece(ui, materials, 0.0, 0.0, l, t, color);
-    spawn_corner_piece(ui, materials, 0.0, 0.0, t, l, color);
-    spawn_corner_piece(ui, materials, 100.0 - l, 0.0, l, t, color);
-    spawn_corner_piece(ui, materials, 100.0 - t, 0.0, t, l, color);
-    spawn_corner_piece(ui, materials, 0.0, 100.0 - t, l, t, color);
-    spawn_corner_piece(ui, materials, 0.0, 100.0 - l, t, l, color);
-    spawn_corner_piece(ui, materials, 100.0 - l, 100.0 - t, l, t, color);
-    spawn_corner_piece(ui, materials, 100.0 - t, 100.0 - l, t, l, color);
+fn spawn_selection_corners(
+    ui: &mut ChildSpawnerCommands,
+    materials: &mut Assets<StandardMaterial>,
+    page: OotPage,
+    action: OotAction,
+    selected: bool,
+) {
+    let color = if selected { Color::WHITE } else { Color::NONE };
+    let material = materials.add(StandardMaterial {
+        base_color: color,
+        alpha_mode: AlphaMode::Blend,
+        cull_mode: None,
+        unlit: true,
+        ..default()
+    });
+    let mut cursor = ui.spawn((
+        Name::new("OoT selection cursor"),
+        SelectionCursor { page, action, material: material.clone() },
+        UiLayout::window().full().pack(),
+        Pickable::IGNORE,
+    ));
+    cursor.with_children(|cursor| {
+        let l = 22.0;
+        let t = 5.8;
+        spawn_corner_piece(cursor, material.clone(), 0.0, 0.0, l, t);
+        spawn_corner_piece(cursor, material.clone(), 0.0, 0.0, t, l);
+        spawn_corner_piece(cursor, material.clone(), 100.0 - l, 0.0, l, t);
+        spawn_corner_piece(cursor, material.clone(), 100.0 - t, 0.0, t, l);
+        spawn_corner_piece(cursor, material.clone(), 0.0, 100.0 - t, l, t);
+        spawn_corner_piece(cursor, material.clone(), 0.0, 100.0 - l, t, l);
+        spawn_corner_piece(cursor, material.clone(), 100.0 - l, 100.0 - t, l, t);
+        spawn_corner_piece(cursor, material, 100.0 - t, 100.0 - l, t, l);
+    });
 }
 
-fn spawn_corner_piece(ui: &mut ChildSpawnerCommands, materials: &mut Assets<StandardMaterial>, x: f32, y: f32, w: f32, h: f32, color: Color) {
-    let material = materials.add(StandardMaterial { base_color: color, alpha_mode: AlphaMode::Opaque, cull_mode: None, unlit: true, ..default() });
+fn spawn_corner_piece(
+    ui: &mut ChildSpawnerCommands,
+    material: Handle<StandardMaterial>,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+) {
     ui.spawn((
         Name::new("OoT selection corner"),
         UiLayout::window().x(Rl(x)).y(Rl(y)).width(Rl(w)).height(Rh(h)).anchor(Anchor::TOP_LEFT).pack(),
         UiDepth::Set(DEPTH_TEXT_TOP - 0.03),
         UiMeshPlane3d,
         MeshMaterial3d(material),
-        UiColor::from(color),
         Pickable::IGNORE,
     ));
 }
-
 fn spawn_control_text(ui: &mut ChildSpawnerCommands, materials: &mut Assets<StandardMaterial>, x: f32, y: f32, size: f32, text: &str, align: TextAlign, color: Srgba) {
     let material = materials.add(StandardMaterial { base_color_texture: Some(TextAtlas::DEFAULT_IMAGE), alpha_mode: AlphaMode::Blend, cull_mode: None, unlit: true, ..default() });
     ui.spawn((
@@ -363,11 +376,8 @@ fn spawn_panel(
         UiMeshPlane3d,
         MeshMaterial3d(material),
     ));
-    if action.is_some() {
-        entity.insert((OnHoverSetCursor::new(SystemCursorIcon::Pointer), UiHover::new().forward_speed(18.0).backward_speed(10.0), UiColor::new(vec![(UiBase::id(), color), (UiHover::id(), hover_panel_color())])));
-    } else {
-        entity.insert((UiColor::from(color), Pickable::IGNORE));
-    }
+    let _ = action;
+    entity.insert(Pickable::IGNORE);
 }
 
 fn spawn_panel_at_depth(ui: &mut ChildSpawnerCommands, materials: &mut Assets<StandardMaterial>, x: f32, y: f32, w: f32, h: f32, color: Color, depth: f32) {
@@ -378,7 +388,6 @@ fn spawn_panel_at_depth(ui: &mut ChildSpawnerCommands, materials: &mut Assets<St
         UiDepth::Set(depth),
         UiMeshPlane3d,
         MeshMaterial3d(material),
-        UiColor::from(color),
         Pickable::IGNORE,
     ));
 }
@@ -395,6 +404,210 @@ fn spawn_text(ui: &mut ChildSpawnerCommands, materials: &mut Assets<StandardMate
         MeshMaterial3d(material),
         Mesh3d::default(),
         Pickable::IGNORE,
+    ));
+}
+
+
+fn spawn_page_status_band(
+    ui: &mut ChildSpawnerCommands,
+    materials: &mut Assets<StandardMaterial>,
+    status: &str,
+) {
+    spawn_panel(
+        ui,
+        materials,
+        15.0,
+        86.0,
+        70.0,
+        8.0,
+        Color::srgba(0.02, 0.02, 0.03, 0.98),
+        None,
+    );
+    let material = materials.add(StandardMaterial {
+        base_color_texture: Some(TextAtlas::DEFAULT_IMAGE),
+        alpha_mode: AlphaMode::Blend,
+        cull_mode: None,
+        unlit: true,
+        ..default()
+    });
+    ui.spawn((
+        Name::new("OoT status text"),
+        PageStatusText,
+        UiLayout::window()
+            .x(Rl(50.0))
+            .y(Rl(90.0))
+            .anchor(Anchor::CENTER)
+            .pack(),
+        UiDepth::Set(DEPTH_TEXT_TOP),
+        UiTextSize::from(Rh(2.8)),
+        Text3d::new(status),
+        Text3dStyling {
+            size: 64.0,
+            color: Srgba::new(0.90, 0.84, 0.64, 1.0),
+            align: TextAlign::Center,
+            font: Arc::from(FONT_FAMILY),
+            weight: Weight::BOLD,
+            ..Default::default()
+        },
+        MeshMaterial3d(material),
+        Mesh3d::default(),
+        Pickable::IGNORE,
+    ));
+}
+
+fn spawn_equipment_preview(
+    ui: &mut ChildSpawnerCommands,
+    materials: &mut Assets<StandardMaterial>,
+    asset_server: &AssetServer,
+    demo: &OotDemo,
+) {
+    let backing_material = materials.add(StandardMaterial {
+        base_color: equipment_preview_backing_color(demo),
+        alpha_mode: AlphaMode::Opaque,
+        cull_mode: None,
+        unlit: true,
+        ..default()
+    });
+    ui.spawn((
+        Name::new("Equipment preview backing"),
+        EquipmentPreviewBacking,
+        UiLayout::window()
+            .x(Rl(29.0))
+            .y(Rl(25.0))
+            .width(Rl(16.0))
+            .height(Rh(43.0))
+            .anchor(Anchor::TOP_LEFT)
+            .pack(),
+        UiDepth::Set(DEPTH_LARGE_PANEL),
+        UiMeshPlane3d,
+        MeshMaterial3d(backing_material),
+        Pickable::IGNORE,
+    ));
+
+    let player_material = materials.add(StandardMaterial {
+        base_color_texture: Some(asset_server.load(equipped_player_icon(demo).to_string())),
+        base_color: Color::WHITE,
+        alpha_mode: AlphaMode::Blend,
+        cull_mode: None,
+        unlit: true,
+        ..default()
+    });
+    ui.spawn((
+        Name::new("Equipment player preview"),
+        EquipmentPlayerPreview,
+        UiLayout::window()
+            .x(Rl(30.7))
+            .y(Rl(27.0))
+            .width(Rl(12.6))
+            .height(Rh(29.0))
+            .anchor(Anchor::TOP_LEFT)
+            .pack(),
+        UiDepth::Set(DEPTH_ICON),
+        UiMeshPlane3d,
+        MeshMaterial3d(player_material),
+        Pickable::IGNORE,
+    ));
+
+    let slots = equip_slots();
+    let badges = [
+        (0usize, MenuRect::new(29.9, 57.8, 5.4, 5.4)),
+        (1usize, MenuRect::new(34.3, 60.6, 5.4, 5.4)),
+        (3usize, MenuRect::new(38.7, 57.8, 5.4, 5.4)),
+    ];
+    for (slot, rect) in badges {
+        let choice = match slot {
+            0 => demo.equipped_sword,
+            1 => demo.equipped_shield,
+            _ => demo.equipped_boots,
+        };
+        let material = materials.add(StandardMaterial {
+            base_color_texture: Some(asset_server.load(slots[slot].choices[choice].icon.to_string())),
+            base_color: Color::WHITE,
+            alpha_mode: AlphaMode::Blend,
+            cull_mode: None,
+            unlit: true,
+            ..default()
+        });
+        ui.spawn((
+            Name::new(format!("Equipment preview badge {slot}")),
+            EquipmentPreviewBadge(slot),
+            UiLayout::window()
+                .x(Rl(rect.x))
+                .y(Rl(rect.y))
+                .width(Rl(rect.w))
+                .height(Rh(rect.h))
+                .anchor(Anchor::TOP_LEFT)
+                .pack(),
+            UiDepth::Set(DEPTH_ICON),
+            UiMeshPlane3d,
+            MeshMaterial3d(material),
+            Pickable::IGNORE,
+        ));
+    }
+
+    let sword = slots[0].choices[demo.equipped_sword];
+    let shield = slots[1].choices[demo.equipped_shield];
+    let boots = slots[3].choices[demo.equipped_boots];
+    let material = materials.add(StandardMaterial {
+        base_color_texture: Some(TextAtlas::DEFAULT_IMAGE),
+        alpha_mode: AlphaMode::Blend,
+        cull_mode: None,
+        unlit: true,
+        ..default()
+    });
+    ui.spawn((
+        Name::new("Equipment preview text"),
+        EquipmentPreviewText,
+        UiLayout::window()
+            .x(Rl(37.0))
+            .y(Rl(67.4))
+            .anchor(Anchor::CENTER)
+            .pack(),
+        UiDepth::Set(DEPTH_TEXT_TOP),
+        UiTextSize::from(Rh(1.55)),
+        Text3d::new(format!("{} / {} / {}", sword.name, shield.name, boots.name)),
+        Text3dStyling {
+            size: 64.0,
+            color: Srgba::new(0.83, 0.88, 0.74, 1.0),
+            align: TextAlign::Center,
+            font: Arc::from(FONT_FAMILY),
+            weight: Weight::BOLD,
+            ..Default::default()
+        },
+        MeshMaterial3d(material),
+        Mesh3d::default(),
+        Pickable::IGNORE,
+    ));
+}
+
+fn spawn_equip_animation_visual(
+    ui: &mut ChildSpawnerCommands,
+    materials: &mut Assets<StandardMaterial>,
+    asset_server: &AssetServer,
+) {
+    let material = materials.add(StandardMaterial {
+        base_color_texture: Some(asset_server.load("icons/oot/bow.png")),
+        base_color: Color::NONE,
+        alpha_mode: AlphaMode::Blend,
+        cull_mode: None,
+        unlit: true,
+        ..default()
+    });
+    ui.spawn((
+        Name::new("C-button equip animation"),
+        EquipAnimationVisual,
+        UiLayout::window()
+            .x(Rl(0.0))
+            .y(Rl(0.0))
+            .width(Rl(7.0))
+            .height(Rh(7.0))
+            .anchor(Anchor::CENTER)
+            .pack(),
+        UiDepth::Set(DEPTH_HUD_TEXT - 0.1),
+        UiMeshPlane3d,
+        MeshMaterial3d(material),
+        Pickable::IGNORE,
+        RenderLayers::layer(HUD_RENDER_LAYER),
     ));
 }
 
@@ -428,9 +641,6 @@ fn focus_color(selected: bool, important: bool) -> Color {
     }
 }
 
-fn hover_panel_color() -> Color {
-    Color::srgba(0.88, 0.70, 0.28, 0.99)
-}
 
 fn panel_depth(w: f32, h: f32, actionable: bool) -> f32 {
     panel_depth_at(0.0, 0.0, w, h, actionable)

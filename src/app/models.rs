@@ -1,3 +1,25 @@
+fn build_static_page_model(page: OotPage, demo: &OotDemo) -> MenuPageModel<OotAction> {
+    let mut model = MenuPageModel::new(mc(page.face_color()));
+    add_edge_buttons(&mut model, page, true, demo.selected);
+    match page {
+        OotPage::Items => add_items_page(&mut model, demo, true),
+        OotPage::Equipment => add_equipment_page(&mut model, demo, true),
+        OotPage::Map => add_map_page(&mut model, demo, true),
+        OotPage::Quest => add_quest_page(&mut model, demo, true),
+    }
+    model
+}
+
+fn build_static_save_prompt_model(complete: bool) -> MenuPageModel<OotAction> {
+    let mut model = MenuPageModel::new(mc(Color::srgba(0.010, 0.011, 0.026, 1.0)));
+    add_save_prompt_panel(
+        &mut model,
+        complete,
+        if complete { OotAction::SaveNo } else { OotAction::SaveYes },
+    );
+    model
+}
+
 fn build_page_model(page: OotPage, demo: &OotDemo, active_face: bool) -> MenuPageModel<OotAction> {
     let prompt_face = active_face && demo.save_prompt_face_visible();
     let background = if prompt_face { Color::srgba(0.010, 0.011, 0.026, 1.0) } else { page.face_color() };
@@ -8,7 +30,7 @@ fn build_page_model(page: OotPage, demo: &OotDemo, active_face: bool) -> MenuPag
     // transform. Keep that same single-surface invariant here. Rendering both
     // was the cause of the visible normal menu plus flickering Yes/No options.
     if prompt_face {
-        add_save_prompt_panel(&mut model, demo);
+        add_save_prompt_panel(&mut model, demo.save_complete, demo.selected);
         return model;
     }
 
@@ -85,20 +107,20 @@ fn add_items_page(model: &mut MenuPageModel<OotAction>, demo: &OotDemo, active_f
     }
 }
 
-fn add_save_prompt_panel(model: &mut MenuPageModel<OotAction>, demo: &OotDemo) {
+fn add_save_prompt_panel(model: &mut MenuPageModel<OotAction>, save_complete: bool, selected: OotAction) {
     // Prompt contents are the only contents on the active face after the flip
     // midpoint. Keep this opaque and sparse to avoid z-fighting with the normal
     // inventory/equipment/map/quest controls.
     model.panel(MenuRect::new(18.0, 24.0, 64.0, 46.0), mc(Color::srgba(0.006, 0.008, 0.025, 1.0)), None);
     model.panel(MenuRect::new(24.0, 31.0, 52.0, 29.0), mc(Color::srgba(0.022, 0.026, 0.060, 1.0)), None);
-    if demo.save_complete {
+    if save_complete {
         model.text(50.0, 38.5, 3.6, "Saved.", MenuTextAlign::Center, mc(Color::srgb(0.94, 0.86, 0.55)));
         model.text(50.0, 45.0, 1.8, "Press A/B/Start to return", MenuTextAlign::Center, mc(Color::srgb(0.78, 0.84, 0.92)));
         model.control_with_icon(MenuRect::new(43.0, 51.0, 14.0, 7.8), MenuControlKind::Action, "OK", None, None::<String>, true, true, Some(OotAction::SaveNo));
     } else {
         model.text(50.0, 38.5, 3.2, "Would you like to save?", MenuTextAlign::Center, mc(Color::srgb(0.94, 0.86, 0.55)));
-        model.control_with_icon(MenuRect::new(34.0, 47.0, 13.5, 7.8), MenuControlKind::Action, "YES", None, None::<String>, demo.selected == OotAction::SaveYes, true, Some(OotAction::SaveYes));
-        model.control_with_icon(MenuRect::new(52.5, 47.0, 13.5, 7.8), MenuControlKind::Action, "NO", None, None::<String>, demo.selected == OotAction::SaveNo, true, Some(OotAction::SaveNo));
+        model.control_with_icon(MenuRect::new(34.0, 47.0, 13.5, 7.8), MenuControlKind::Action, "YES", None, None::<String>, selected == OotAction::SaveYes, true, Some(OotAction::SaveYes));
+        model.control_with_icon(MenuRect::new(52.5, 47.0, 13.5, 7.8), MenuControlKind::Action, "NO", None, None::<String>, selected == OotAction::SaveNo, true, Some(OotAction::SaveNo));
     }
 }
 
@@ -111,9 +133,6 @@ fn add_pause_hud_overlay(model: &mut MenuPageModel<OotAction>, demo: &OotDemo, _
     add_action_button_indicators(model, demo);
     add_c_button_assignments(model, demo);
 
-    if let Some(anim) = demo.equip_anim {
-        add_equip_anim_visual(model, anim);
-    }
 }
 
 fn add_health_and_magic(model: &mut MenuPageModel<OotAction>) {
@@ -205,20 +224,8 @@ fn add_c_button_assignments(model: &mut MenuPageModel<OotAction>, demo: &OotDemo
 fn add_equipment_page(model: &mut MenuPageModel<OotAction>, demo: &OotDemo, active_face: bool) {
     model.panel(MenuRect::new(14.0, 20.0, 72.0, 58.0), mc(Color::srgba(0.055, 0.042, 0.025, 1.0)), None);
 
-    // Closer to OoT's equipment page: an upgrades column at far left, a player preview
-    // in the left-center, and the 3-choice equipment grid on the right.
-    model.panel(MenuRect::new(29.0, 25.0, 16.0, 43.0), mc(equipment_preview_backing_color(demo)), None);
-    model.control_with_icon(
-        MenuRect::new(30.7, 27.0, 12.6, 29.0),
-        MenuControlKind::Decoration,
-        "",
-        None,
-        Some(equipped_player_icon(demo)),
-        false,
-        false,
-        None,
-    );
-    add_equipped_preview_badges(model, demo);
+    // The player/equipment preview is spawned as retained entities by the Lunex renderer
+    // so changing equipment updates textures and colors in place instead of rebuilding this page.
 
     let upgrade_icons = [
         ("Quiver", "icons/oot/bow.png"),
@@ -253,7 +260,7 @@ fn add_equipment_page(model: &mut MenuPageModel<OotAction>, demo: &OotDemo, acti
             };
             let action = OotAction::EquipChoice { slot: slot_idx, choice: choice_idx };
             let usable = choice.usable_by_current_link();
-            let detail = if equipped { Some("E".to_string()) } else if !usable { Some("child".to_string()) } else { None };
+            let detail = if !usable { Some("child".to_string()) } else { None };
             model.control_with_icon(
                 MenuRect::new(col_x[choice_idx], row_y[slot_idx], 9.5, 9.5),
                 MenuControlKind::Item,
@@ -284,38 +291,6 @@ fn equipment_preview_backing_color(demo: &OotDemo) -> Color {
         2 => Color::srgba(0.030, 0.075, 0.125, 1.0),
         _ => Color::srgba(0.045, 0.100, 0.065, 1.0),
     }
-}
-
-fn add_equipped_preview_badges(model: &mut MenuPageModel<OotAction>, demo: &OotDemo) {
-    let slots = equip_slots();
-    let sword = slots[0].choices[demo.equipped_sword];
-    let shield = slots[1].choices[demo.equipped_shield];
-    let boots = slots[3].choices[demo.equipped_boots];
-    let badges = [
-        ("Sword", sword.icon, MenuRect::new(29.9, 57.8, 5.4, 5.4)),
-        ("Shield", shield.icon, MenuRect::new(34.3, 60.6, 5.4, 5.4)),
-        ("Boots", boots.icon, MenuRect::new(38.7, 57.8, 5.4, 5.4)),
-    ];
-    for (_label, icon, rect) in badges {
-        model.control_with_icon(
-            rect,
-            MenuControlKind::Decoration,
-            "",
-            None,
-            Some(icon),
-            false,
-            true,
-            None,
-        );
-    }
-    model.text(
-        37.0,
-        67.4,
-        1.55,
-        format!("{} / {} / {}", sword.name, shield.name, boots.name),
-        MenuTextAlign::Center,
-        mc(Color::srgb(0.83, 0.88, 0.74)),
-    );
 }
 
 fn add_map_page(model: &mut MenuPageModel<OotAction>, demo: &OotDemo, active_face: bool) {

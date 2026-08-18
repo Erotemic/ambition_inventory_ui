@@ -263,12 +263,6 @@ fn animate_equip_and_save(
     let save_step = 1.0 - (-SAVE_FLIP_SPEED * delta_secs).exp();
     let next_save = demo.save_flip + (demo.save_flip_target - demo.save_flip) * save_step;
     if (next_save - demo.save_flip).abs() > 0.001 {
-        // The flip is a transform animation, not a content rebuild animation.
-        // Rebuilding the active Lunex face every frame resets its Transform after
-        // animate_menu_ring applies the pitch, which made B-to-save look like a
-        // hard content cut with no visible rotation. Only bump the rendered page
-        // model when the flip crosses the edge-on midpoint and the visible face
-        // needs to switch between normal pause contents and save-prompt contents.
         let was_prompt_face = demo.save_prompt_face_visible();
         demo.save_flip = next_save;
         if (demo.save_flip - demo.save_flip_target).abs() < 0.004 {
@@ -278,32 +272,20 @@ fn animate_equip_and_save(
         if was_prompt_face && !is_prompt_face && !demo.save_prompt_open {
             demo.restore_normal_selection_after_save();
         }
-        if was_prompt_face != is_prompt_face {
-            demo.bump();
-        }
         if demo.save_flip == 0.0 && !demo.save_prompt_open {
-            let mut changed = false;
             if matches!(demo.selected, OotAction::SaveYes | OotAction::SaveNo | OotAction::Save) {
                 demo.restore_normal_selection_after_save();
-                changed = true;
             }
-            if demo.save_complete {
-                demo.save_complete = false;
-                changed = true;
-            }
-            if changed {
-                demo.bump();
-            }
-        } else if !demo.save_prompt_open && demo.save_flip_target <= 0.001 && !demo.save_prompt_face_visible() {
-            // The normal page is back on-screen after the closing midpoint.
-            // Restore a normal focus target and rebuild the face as enabled now,
-            // not only after the final sub-pixel tail of the flip animation.
-            if matches!(demo.selected, OotAction::SaveYes | OotAction::SaveNo | OotAction::Save) {
-                demo.restore_normal_selection_after_save();
-                demo.bump();
-            }
+            demo.save_complete = false;
+        } else if !demo.save_prompt_open
+            && demo.save_flip_target <= 0.001
+            && !demo.save_prompt_face_visible()
+            && matches!(demo.selected, OotAction::SaveYes | OotAction::SaveNo | OotAction::Save)
+        {
+            demo.restore_normal_selection_after_save();
         }
     }
+
     if let Some(mut anim) = demo.equip_anim {
         let speed = match anim.phase {
             EquipAnimPhase::ItemToButton => 4.5,
@@ -333,25 +315,7 @@ fn animate_equip_and_save(
             }
         }
         demo.equip_anim = Some(anim);
-        demo.bump();
     }
-}
-
-fn apply_save_flip(face: OotPage, active: OotPage, amount: f32, transform: &mut Transform) {
-    if face != active || amount <= 0.001 {
-        return;
-    }
-    // Two-phase prompt flip: rotate the active face around its horizontal center
-    // line until it is edge-on, swap the page contents at the midpoint, then
-    // rotate the replacement prompt face back to the viewer. This approximates
-    // OoT's promptPitch behavior while keeping the prompt readable instead of
-    // ending upside-down/back-facing. Do not apply this to the HUD overlay: hearts,
-    // magic, A/B, and C buttons live on their own render layer and stay fixed.
-    let t = amount.clamp(0.0, 1.0);
-    let half = if t < 0.5 { t * 2.0 } else { (1.0 - t) * 2.0 };
-    let eased = smoothstep(half);
-    let angle = FRAC_PI_2 * eased;
-    transform.rotation = transform.rotation * Quat::from_rotation_x(angle);
 }
 
 fn mouse_navigation(mut wheel: MessageReader<MouseWheel>, shell: Res<MenuShell>, mut demo: ResMut<OotDemo>, mut menu: ResMut<MenuAnimation>) {
@@ -400,25 +364,29 @@ fn animate_menu_ring(
     if (shell.openness - target).abs() < 0.002 {
         shell.openness = target;
     }
-    *visibility = if shell.is_visible() { Visibility::Visible } else { Visibility::Hidden };
+    visibility.set_if_neq(if shell.is_visible() { Visibility::Visible } else { Visibility::Hidden });
+    let desired_hud_transform = Transform::from_translation(Vec3::new(
+        0.0,
+        0.0,
+        PAGE_RADIUS - HUD_Z_OFFSET_TOWARD_CAMERA,
+    ))
+    .with_scale(Vec3::new(HUD_SCREEN_X_FLIP, 1.0, 1.0));
     for (mut hud_transform, mut hud_visibility) in &mut hud_query {
-        *hud_visibility = Visibility::Visible;
-        // Gameplay HUD elements are outside the pause pane in OoT. They should
-        // not inherit the pause cube open/close fold, page rotation, or save
-        // prompt pitch. They also remain visible when the pause box/menu shell
-        // closes, matching OoT's persistent gameplay HUD.
-        hud_transform.translation = Vec3::new(0.0, 0.0, PAGE_RADIUS - HUD_Z_OFFSET_TOWARD_CAMERA);
-        hud_transform.scale = Vec3::new(HUD_SCREEN_X_FLIP, 1.0, 1.0);
-        hud_transform.rotation = Quat::IDENTITY;
+        hud_visibility.set_if_neq(Visibility::Visible);
+        hud_transform.set_if_neq(desired_hud_transform.clone());
     }
     let open = smoothstep(shell.openness.clamp(0.0, 1.0));
-    transform.rotation = Quat::from_rotation_y(menu.current_angle);
-    transform.scale = Vec3::ONE;
-    transform.translation = Vec3::new(0.0, -0.10 * (1.0 - open), 0.0);
+    let desired_ring_transform = Transform::from_translation(Vec3::new(
+        0.0,
+        -0.10 * (1.0 - open),
+        0.0,
+    ))
+    .with_rotation(Quat::from_rotation_y(menu.current_angle));
+    transform.set_if_neq(desired_ring_transform);
     let fold = OOT_PAGE_FOLD_RADIANS * (1.0 - open);
-    for (face, mut t) in &mut face_query {
-        apply_oot_open_fold(face.0, fold, &mut t);
-        apply_save_flip(face.0, demo.page, demo.save_flip, &mut t);
+    for (face, mut face_transform) in &mut face_query {
+        let desired = desired_face_transform(face.0, demo.page, fold, demo.save_flip);
+        face_transform.set_if_neq(desired);
     }
 }
 
@@ -487,7 +455,6 @@ fn pointer_hit_test(
         }
         if buttons.just_released(MouseButton::Right) {
             demo.status = "Cancel/back.".to_string();
-            demo.bump();
         }
     }
     for touch in touches.read() {
@@ -594,30 +561,3 @@ fn c_slot_family(item_idx: usize) -> CSlotFamily {
 fn lerp_vec2(a: Vec2, b: Vec2, t: f32) -> Vec2 {
     a + (b - a) * smoothstep(t.clamp(0.0, 1.0))
 }
-
-fn add_equip_anim_visual(model: &mut MenuPageModel<OotAction>, anim: EquipAnim) {
-    let t = anim.progress.clamp(0.0, 1.0);
-    let (pos, icon, label, size) = match anim.phase {
-        EquipAnimPhase::ItemToButton => (lerp_vec2(anim.from, anim.to, t), oot_items()[anim.item_idx].icon, "", 7.0),
-        EquipAnimPhase::ArrowGlowToBow => {
-            let kind = arrow_kind(anim.item_idx).unwrap_or(ArrowKind::Fire);
-            (lerp_vec2(anim.from, anim.via, t), kind.glow_icon(), "glow", 7.2 + 1.6 * (1.0 - t))
-        }
-        EquipAnimPhase::ArrowBowHold => {
-            let kind = arrow_kind(anim.item_idx).unwrap_or(ArrowKind::Fire);
-            (anim.via, kind.glow_icon(), "glow", 8.2 + (t * PI * 4.0).sin().abs())
-        }
-        EquipAnimPhase::BowToButton => (lerp_vec2(anim.via, anim.to, t), oot_items()[anim.item_idx].icon, "", 7.0),
-    };
-    model.control_with_icon(
-        MenuRect::new(pos.x - size * 0.5, pos.y - size * 0.5, size, size),
-        MenuControlKind::Decoration,
-        label,
-        None,
-        Some(icon),
-        true,
-        true,
-        None,
-    );
-}
-
